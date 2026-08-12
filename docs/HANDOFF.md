@@ -87,6 +87,15 @@ YTM.Lyrics：YouTube Music 桌面歌词应用。C# .NET 8 + WPF 桌面端 + 油�
 7. **用户名含单引号 `wei'son`**：永远用 framework-dependent 单文件发布（ADR-12）
 8. **PublishSingleFile 首次 publish 可能 MSB4018 瞬态失败**：原样重跑即过
 9. **PowerShell 5.1**：无 BOM UTF-8 脚本被 GBK 误读；编排脚本用 Python
+10. **沙箱读不到 gh 凭据**：沙箱 APPDATA 重定向到 `C:\Users\weison\.hanako\.ephemeral\...`，gh 读不到真实登录；解：`$env:GH_CONFIG_DIR = "C:\Users\weison\AppData\Roaming\GitHub CLI"`（真实 APPDATA 下的 GitHub CLI 目录）
+
+## 沙盒与提权约定（戈塔什大人 2026-08-12 亲定）
+
+1. **需要提权（require_escalated）或让用户解开沙盒时，必须告知用户并说明明确原因**——为什么沙盒内做不了（如 Schannel TLS 死）、提权后具体要执行什么操作。
+2. 用户可以解开沙盒：Settings → Security → 关闭「沙盒」开关（关闭后 AI 可读写/删除系统任意文件，警告属实）。
+3. **任务处理完后，必须提醒用户重新打开沙盒**（保持沙盒默认 ON，临时解开、用完关回）。
+4. 提权后只做完成当前任务所必需的最小操作，不做无关探索/清理/修改。
+5. 提权前先尝试非提权方案（走代理、`GH_CONFIG_DIR` 指真实 APPDATA、Python/OpenSSL 出网、gh 的 Go TLS 等），确实不行再提。
 
 ## 用户环境档案
 
