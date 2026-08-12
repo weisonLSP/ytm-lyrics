@@ -1,0 +1,93 @@
+# 标准 Visual Studio / .NET gitignore 模板
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.userprefs
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.VC.db
+*.VC.VC.opendb
+*.ncb
+*.opendb
+*.psess
+*.vsp
+*.vspx
+*.sap
+*.sln.ide
+*.nupkg
+*.snupkg
+
+## .NET
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nupkg
+*.snupkg
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+*.nuget.props
+*.nuget.targets
+
+## Rider / JetBrains
+.idea/
+*.sln.iml
+
+## OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+## 本项目
+*.log
+node_modules/
+
+# 沙箱离线源配置（TASK-101 环境适配，正常环境删除恢复 nuget.org）
+nuget.config
+
+# TASK-104b：桌面端单文件发布产物（不入库，走查时双击运行）
+dist/
+
+## 第三方源码（备选固化方案，TASK-101）
+# external/Lyricify-Lyrics-Helper 为独立 git 仓库（master @ c14bba9），不纳入主仓库版本控制；
+# 固化方式与升级步骤见 README.md「第三方依赖」章节。
+# 注意：必须锚定根目录（/external/），否则会误伤 src/.../External/（防腐层解析适配目录，TASK-204 修正）。
+/external/
+
+tools/_dump_profile/
+tools/*.pid
+
+# TASK-205F 诊断取证（不入库：真实歌词版权数据 / 可重跑的过程输出）
+tools/t205f/kugou_krc_real.txt
+tools/t205f/*_stdout.txt
+
+# 取证/诊断过程产物（截图、缓存库、测试设置，不入库；可重跑生成）
+.verify/
+tools/**/*.db
+tools/**/*_shots/
+tools/t205_scroll_*/
+tools/t205h/

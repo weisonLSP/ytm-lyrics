@@ -1,0 +1,8 @@
+[ti:Test Song]
+[ar:Test Artist]
+[0,2000]你好(0,500)世界(500,500)
+[3000,0]Hello world
+[4000,2000]第二句(0,500)歌词(500,500)
+[6000,0]Second line translation
+[8000,2000]第三句(0,500)歌词(500,500)
+[10000,0]Third line translation

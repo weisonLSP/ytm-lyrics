@@ -1,0 +1,41 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{68B4EF40-1AA8-4FD4-BB7F-F54412663C72}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YTM.Lyrics.Core", "src\YTM.Lyrics.Core\YTM.Lyrics.Core.csproj", "{DD009498-1DEE-4A91-85A1-54AEAB0D17F7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YTM.Lyrics.Desktop", "src\YTM.Lyrics.Desktop\YTM.Lyrics.Desktop.csproj", "{D6D7B72A-49A6-426D-B35B-FB8895272B6A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YTM.Lyrics.Core.Tests", "src\YTM.Lyrics.Core.Tests\YTM.Lyrics.Core.Tests.csproj", "{C59627FC-602E-41CC-9258-DB185D09088D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DD009498-1DEE-4A91-85A1-54AEAB0D17F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DD009498-1DEE-4A91-85A1-54AEAB0D17F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DD009498-1DEE-4A91-85A1-54AEAB0D17F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DD009498-1DEE-4A91-85A1-54AEAB0D17F7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6D7B72A-49A6-426D-B35B-FB8895272B6A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6D7B72A-49A6-426D-B35B-FB8895272B6A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6D7B72A-49A6-426D-B35B-FB8895272B6A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6D7B72A-49A6-426D-B35B-FB8895272B6A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C59627FC-602E-41CC-9258-DB185D09088D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C59627FC-602E-41CC-9258-DB185D09088D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C59627FC-602E-41CC-9258-DB185D09088D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C59627FC-602E-41CC-9258-DB185D09088D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{DD009498-1DEE-4A91-85A1-54AEAB0D17F7} = {68B4EF40-1AA8-4FD4-BB7F-F54412663C72}
+		{D6D7B72A-49A6-426D-B35B-FB8895272B6A} = {68B4EF40-1AA8-4FD4-BB7F-F54412663C72}
+		{C59627FC-602E-41CC-9258-DB185D09088D} = {68B4EF40-1AA8-4FD4-BB7F-F54412663C72}
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Fake YTM — TASK-103 探针模拟页</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #eee; margin: 0; padding: 24px; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  #status { background: #1c1c1c; border: 1px solid #333; border-radius: 8px; padding: 12px; font: 12px/1.6 monospace; margin-bottom: 12px; min-height: 120px; white-space: pre-wrap; }
+  #controls button { margin: 2px 6px 2px 0; padding: 6px 12px; border-radius: 6px; border: 1px solid #555; background: #2a2a2a; color: #eee; cursor: pointer; }
+  #controls button:hover { background: #3a3a3a; }
+  .dim { color: #999; font-size: 12px; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <h1>Fake YTM（TASK-104a 探针模拟页，非真实 YTM）</h1>
+  <div id="status">加载中…</div>
+  <div id="controls">
+    <button onclick="fakePlay()">播放</button>
+    <button onclick="fakePause()">暂停</button>
+    <button onclick="fakeSeek()">seek 1.2s</button>
+    <button onclick="fakeNext1()">切歌1（重建 audio 元素 + 结构化元数据）</button>
+    <button onclick="fakeNext2()">切歌2（同元素换源 + 降级元数据路径）</button>
+    <button onclick="fakeNext3()">切歌3（真机形态：video + mediaSession）</button>
+    <button onclick="fakeNext4()">切歌4（多元素并存：选活跃 video）</button>
+  </div>
+  <div class="dim">说明：audio/video 均为 HTML5 标准元素，src 为 base64 WAV 短音源。切歌1 重建 audio（测探针引用变化重挂事件），切歌2 走 loadedmetadata + document.title 降级；切歌3 模拟真实 YTM（仅 &lt;video&gt; + navigator.mediaSession.metadata，探针必须找到 video 并优先用 mediaSession 元数据）；切歌4 在播放中 video 前插入静止 audio，测"多元素选活跃者"。</div>
+
+  <audio id="player"></audio>
+
+  <!-- 探针以普通 script 直接注入：零 GM_* API，行为与油猴注入一致（TASK-103 要求 2） -->
+  <script src="/probe/ytm-lyrics-probe.user.js"></script>
+
+  <script>
+    'use strict';
+
+    // ---- 模拟 YTM 结构化数据（playerResponse 槽位） ----
+    window.ytInitialPlayerResponse = {
+      videoDetails: { title: 'Song A (Original Mix)', author: 'Channel A', lengthSeconds: '3' }
+    };
+
+    // ---- 8kHz 8-bit 单声道静音 WAV → base64 data URI（audio 可播放的真实短音源） ----
+    function makeWav(sec) {
+      var rate = 8000, n = Math.floor(rate * sec);
+      var bytes = new Uint8Array(44 + n);
+      var dv = new DataView(bytes.buffer);
+      dv.setUint32(0, 0x52494646, false);       // 'RIFF'
+      dv.setUint32(4, 36 + n, true);
+      dv.setUint32(8, 0x57415645, false);       // 'WAVE'
+      dv.setUint32(12, 0x666d7420, false);      // 'fmt '
+      dv.setUint32(16, 16, true);
+      dv.setUint16(20, 1, true);                // PCM
+      dv.setUint16(22, 1, true);                // mono
+      dv.setUint32(24, rate, true);
+      dv.setUint32(28, rate, true);
+      dv.setUint16(32, 1, true);
+      dv.setUint16(34, 8, true);
+      dv.setUint32(36, 0x64617461, false);      // 'data'
+      dv.setUint32(40, n, true);
+      for (var i = 44; i < bytes.length; i++) bytes[i] = 128; // 静音样本
+      var bin = '';
+      for (var j = 0; j < bytes.length; j++) bin += String.fromCharCode(bytes[j]);
+      return 'data:audio/wav;base64,' + btoa(bin);
+    }
+
+    var WAV_A = makeWav(3.0); // 曲A：3s
+    var WAV_B = makeWav(4.0); // 曲B：4s
+    var WAV_C = makeWav(5.0); // 曲C：5s
+    var WAV_D = makeWav(6.0); // 曲D：6s（切歌3 video）
+    var WAV_F = makeWav(7.0); // 曲F：7s（切歌4 活跃 video）
+
+    var player = document.getElementById('player');
+    player.src = WAV_A; // 初始曲 A
+
+    // ---- 页面行为（对应验收六类：播放/暂停/seek/切歌/心跳/断线重连） ----
+    function fakePlay()  { var p = player.play(); if (p && p.catch) p.catch(function(){}); }
+    function fakePause() { player.pause(); }
+    function fakeSeek()  { player.currentTime = 1.2; }
+
+    function setStructured(title, author, lenSec) {
+      window.ytInitialPlayerResponse = { videoDetails: { title: title, author: author, lengthSeconds: lenSec } };
+    }
+
+    function fakeNext1() {
+      // 切歌1：重建 audio 元素（模拟 YTM SPA 重建播放器），换结构化元数据
+      var old = document.getElementById('player');
+      var neu = document.createElement('audio');
+      neu.id = 'player';
+      neu.src = WAV_B;
+      old.parentNode.replaceChild(neu, old);
+      player = neu;
+      setStructured('Song B - Live at Tokyo', 'Channel B', '4');
+    }
+
+    function fakeNext2() {
+      // 切歌2：删掉结构化数据 → 探针必须降级 document.title（原始值，不清洗）
+      window.ytInitialPlayerResponse = undefined;
+      document.title = 'Song C - Raw Channel C - YouTube Music';
+      player.src = WAV_C; // 同元素换源 → loadedmetadata
+    }
+
+    function fakeNext3() {
+      // 切歌3：真机形态（TASK-104a 裁决：真实 YTM 用 <video> 播放，纯音频亦然，页面无 <audio>）
+      var old = document.getElementById('player');
+      if (old) old.parentNode.removeChild(old);
+      var neu = document.createElement('video');
+      neu.id = 'player';
+      neu.src = WAV_D;
+      document.body.appendChild(neu);
+      player = neu;
+      // W3C 标准 MediaSession：真实 YTM 主播放器恒在维护；title/artist 直接用
+      navigator.mediaSession.metadata = new MediaMetadata({ title: 'Song D (Video Session)', artist: 'Channel D', album: 'Album D' });
+      // 干扰源：结构化数据与 document.title 均指向别处 → 探针必须选 mediaSession（不降级）
+      window.ytInitialPlayerResponse = { videoDetails: { title: 'Song D - WRONG CHANNEL', author: 'WRONG', lengthSeconds: '999' } };
+      document.title = 'Song D - Raw Title - YouTube Music';
+      fakePlay(); // video 开始播放（当前真实播放器形态）
+    }
+
+    function fakeNext4() {
+      // 切歌4：多元素并存 —— 在播放中 video 之前插入静止 audio（旧曲残留）→ 探针必须越过它选活跃 video
+      var idle = document.createElement('audio');
+      idle.id = 'idle-audio';
+      idle.src = WAV_A; // 静止：paused=true、currentTime=0
+      document.body.insertBefore(idle, document.getElementById('player'));
+      navigator.mediaSession.metadata = new MediaMetadata({ title: 'Song F (Active Video)', artist: 'Channel F', album: '' });
+      // 干扰：结构化数据指向静止 audio 的曲目 → 若误选 audio，position/playing 会暴露
+      window.ytInitialPlayerResponse = { videoDetails: { title: 'Song E - Idle Audio', author: 'Channel E', lengthSeconds: '3' } };
+      document.title = 'Song F - Raw Title - YouTube Music';
+      player.src = WAV_F; // 活跃 video 换源（曲F）→ loadedmetadata
+      fakePlay();         // Chrome 换 src 会隐式暂停 → 恢复播放，保持"活跃 video vs 静止 audio"对比
+    }
+
+    // ---- 状态面板（每秒刷新，供手动走查） ----
+    function refreshStatus() {
+      var ms = (navigator.mediaSession && navigator.mediaSession.metadata) || null;
+      var el = document.getElementById('status');
+      el.textContent =
+        'media: <' + player.tagName.toLowerCase() + '> duration=' + (isFinite(player.duration) ? player.duration.toFixed(2) : player.duration) +
+        's currentTime=' + player.currentTime.toFixed(2) + 's paused=' + player.paused + '\n' +
+        'mediaSession.metadata: ' + (ms ? (ms.title + ' / ' + ms.artist + ' / ' + (ms.album || '')) : '(none)') + '\n' +
+        'ytInitialPlayerResponse: ' + (window.ytInitialPlayerResponse ? JSON.stringify(window.ytInitialPlayerResponse.videoDetails) : '(deleted → 降级路径)') + '\n' +
+        'document.title: ' + document.title;
+    }
+    setInterval(refreshStatus, 500);
+
+    // ---- 自动测试序列（headless 端到端用；手动走查时可忽略） ----
+    function auto(name, delay, fn) {
+      setTimeout(function () {
+        console.log('[fake-ytm] ' + name);
+        fn();
+      }, delay);
+    }
+    auto('play()',              1000, fakePlay);   // → play 事件即发
+    auto('seek(1.2)',           2500, fakeSeek);   // → seeked 事件即发
+    auto('pause()',             4000, fakePause);  // → pause 事件即发
+    auto('play() 恢复',         5500, fakePlay);   // → play 事件即发
+    auto('切歌1：重建 audio 元素', 7000, fakeNext1); // → 引用变化重挂 + 切歌即发
+    auto('切歌2：降级元数据路径', 9000, fakeNext2); // → loadedmetadata + document.title 降级
+    auto('切歌3：真机形态 video + mediaSession', 10000, fakeNext3); // → video 被发现 + mediaSession 优先
+    auto('切歌4：多元素并存选活跃者', 13000, fakeNext4); // → 静止 audio 被跳过，报活跃 video
+  </script>
+</body>
+</html>

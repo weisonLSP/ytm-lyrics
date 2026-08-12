@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- TASK-205F：QQ 搜索接口真实响应样本（2026-08-12 抓取，tools/t205f/qq_client_search_cp_sample.json 同源）-->
+    <EmbeddedResource Include="..\..\tools\t205f\qq_client_search_cp_sample.json"
+                      LogicalName="YTM.Lyrics.Core.Tests.Resources.qq_client_search_cp_sample.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\YTM.Lyrics.Core\YTM.Lyrics.Core.csproj" />
+  </ItemGroup>
+
+</Project>

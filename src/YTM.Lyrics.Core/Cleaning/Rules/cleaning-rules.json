@@ -1,0 +1,54 @@
+{
+  // YTM.Lyrics F3 标题清洗器默认规则表（TASK-201）
+  // 改动本文件后热加载生效，无需重新编译；外部文件可在设置中指定路径覆盖本表。
+  // 规则语义见 Core/Cleaning/CleaningRules.cs 的字段注释。
+
+  "version": 1,
+
+  // 括号对（单字符）：() 【】 [] （）｛｝。命中 feat./with 白名单时提取艺人，否则整体剥离（含嵌套）。
+  "brackets": [
+    { "open": "(", "close": ")" },
+    { "open": "【", "close": "】" },
+    { "open": "[", "close": "]" },
+    { "open": "（", "close": "）" },
+    { "open": "｛", "close": "｝" }
+  ],
+
+  // 括号内白名单关键词：命中则把括号内容当艺人信息提取进 ArtistCandidates。
+  // 拉丁关键词要求后随空格或串尾（防 "without" 误命中 "with"）；CJK 关键词不附加约束。
+  "featKeywords": ["feat", "feat.", "featuring", "ft", "ft.", "with", "参与", "合作", "客串", "出演"],
+
+  // 白名单命中后仍放弃提取的噪声词（如 "(with lyrics)" 不应把 "lyrics" 当艺人）。
+  "featNoiseTokens": ["lyrics", "lyric", "video", "official", "audio", "mv", "visualizer", "subtitle", "字幕", "歌词"],
+
+  // 后缀噪声（仅匹配串尾，最长优先；允许前置空格或连字符，要求词首边界防误伤 Alive/Recover 类词）。
+  // 注意：括号内的噪声无需列入（括号剥离先行），如 "Official (Music) Video" 由括号处理。
+  "suffixes": [
+    "Official Music Video", "Official Lyric Video", "Official Lyrics Video",
+    "Official Video", "Official MV", "Official Audio", "Official Instrumental",
+    "Music Video", "Lyric Video", "Lyrics Video", "Visualizer",
+    "Live Version", "Live Ver.", "Lyric", "Lyrics", "Audio", "MV",
+    "Instrumental", "伴奏", "纯音乐",
+    "Live", "Cover", "Remix",
+    "4K", "8K", "2K", "HD", "高清", "完整版", "字幕版", "中文字幕",
+    "YouTube Music", "Topic", "Official", "With Lyrics"
+  ],
+
+  // 前缀噪声（默认空，机制保留；可配如 "HD"）。
+  "prefixes": [],
+
+  // 装饰符号（逐字符剥离）；emoji 区间由引擎内置。
+  "decorations": ["★", "☆", "♪", "♫", "♬", "♩", "※", "✦", "✧", "⚡", "❤", "♥", "♡", "◆", "◇", "■", "□", "▲", "△", "▼", "▽", "◎", "○", "●", "·", "・"],
+
+  // 分隔符（推测 "艺人 - 歌名"）：
+  //   半角连字符 " - " 需空格邻接（防拆 "A-B" 品牌名）；长/全角破折号 — ― 允许紧邻；
+  //   斜杠 ／ / 需空格邻接或左右为 CJK（"周杰伦/晴天" 拆、"AC/DC" 不拆）。
+  "separators": [" - ", "－", "—", "–", "―", "／", "/", "|", "｜"],
+
+  // 提取出的 feat. 艺人内部再拆分记号。
+  "artistSplitTokens": ["&", "＆", "、", " and "],
+
+  // 护栏：防死循环。
+  "maxAffixPasses": 5,
+  "maxBracketPasses": 64
+}

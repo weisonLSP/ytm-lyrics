@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="LiteDB" Version="5.0.21" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\external\Lyricify-Lyrics-Helper\Lyricify.Lyrics.Helper\Lyricify.Lyrics.Helper.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Cleaning\Rules\cleaning-rules.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 测试程序集可访问 internal（TASK-205F：QQ 适配器解析/URL 构造为 internal 纯函数，供真实样本 mock 验证）-->
+    <InternalsVisibleTo Include="YTM.Lyrics.Core.Tests" />
+  </ItemGroup>
+</Project>

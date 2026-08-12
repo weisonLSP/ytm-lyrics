@@ -1,0 +1,313 @@
+<Window x:Class="YTM.Lyrics.Desktop.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="设置 — YTM.Lyrics"
+        Height="640" Width="820"
+        WindowStartupLocation="CenterScreen"
+        Background="#1B1D29" Foreground="#EDEDF2" FontSize="13">
+    <DockPanel Margin="24,20,24,20">
+        <!-- 底部：保存按钮（只做保存即存即生效，不做"应用"） -->
+        <DockPanel DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button x:Name="SaveButton" Content="保存" Padding="32,6" FontSize="14"
+                    Background="#2A3B55" Foreground="#EDEDF2" BorderThickness="0"
+                    Cursor="Hand" Click="OnSaveClicked" />
+        </DockPanel>
+
+        <TabControl x:Name="Tabs" Background="#161824" BorderBrush="#3C3F55">
+            <!-- ============ 页 1：服务（UI_SPEC §4.1） ============ -->
+            <TabItem Header="服务">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="12,14,12,12">
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="WebSocket 端口" FontWeight="SemiBold" />
+                                <TextBlock Text="ws_port" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <TextBox x:Name="PortBox" Grid.Column="1" Height="28" FontSize="13"
+                                     VerticalContentAlignment="Center" Background="#12141D"
+                                     Foreground="#EDEDF2" BorderBrush="#3C3F55" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="油猴探针监听端口（1024–65535）。改动后自动重启监听，重建期间可能丢几个心跳帧"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ============ 页 2：歌词与源（UI_SPEC §4.2） ============ -->
+            <TabItem Header="歌词与源">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="12,14,12,12">
+                        <!-- 源优先级 -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Top" Margin="0,4,0,0">
+                                <TextBlock Text="源优先级" FontWeight="SemiBold" />
+                                <TextBlock Text="lyric_source_priority" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <Grid Grid.Column="1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ListBox x:Name="SourcePriorityList" Height="150" DisplayMemberPath="DisplayName"
+                                         Background="#12141D" Foreground="#EDEDF2" BorderBrush="#3C3F55"
+                                         SelectionChanged="OnSourceSelectionChanged" />
+                                <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                    <Button x:Name="MoveUpButton" Content="▲ 上移" Width="72" Padding="6,4"
+                                            Margin="0,0,0,6" FontSize="12" Click="OnMoveUpClicked" />
+                                    <Button x:Name="MoveDownButton" Content="▼ 下移" Width="72" Padding="6,4"
+                                            FontSize="12" Click="OnMoveDownClicked" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Top"
+                                       Text="多源搜索顺序：越靠上越优先，首选源匹配分达标即返回。选中后点击上移/下移调整，保存后下一首新歌按新顺序搜索"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- 翻译行显示 -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="显示翻译行" FontWeight="SemiBold" />
+                                <TextBlock Text="show_translation" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <CheckBox x:Name="TranslationCheck" Grid.Column="1" VerticalAlignment="Center"
+                                      Content="翻译行显示开关" Foreground="#EDEDF2" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="QRC/TTML 自带翻译时在主窗口歌词面板显示翻译副行"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- 清洗规则路径 -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="清洗规则文件" FontWeight="SemiBold" />
+                                <TextBlock Text="cleaner_rules_path" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <TextBox x:Name="CleanerPathBox" Grid.Column="1" Height="28" FontSize="13"
+                                     VerticalContentAlignment="Center" Background="#12141D"
+                                     Foreground="#EDEDF2" BorderBrush="#3C3F55"
+                                     ToolTip="清洗规则 JSON 文件路径；留空 = 内置默认规则" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="标题清洗规则表路径，留空使用内置默认规则；保存后热加载，后续新歌按新规则清洗"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ============ 页 3：形态与桌面歌词（UI_SPEC §4.3 / §4.4） ============ -->
+            <TabItem Header="形态与桌面歌词">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="12,14,12,12">
+                        <!-- default_view -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="默认歌词形态" FontWeight="SemiBold" />
+                                <TextBlock Text="default_view" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <ComboBox x:Name="DefaultViewBox" Grid.Column="1" Height="28" FontSize="13"
+                                      Background="#12141D" Foreground="#EDEDF2" BorderBrush="#3C3F55">
+                                <ComboBoxItem Content="main（主窗口面板）" />
+                                <ComboBoxItem Content="desktop（桌面歌词）" />
+                            </ComboBox>
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="启动后默认歌词形态；保存后即时切换（desktop：显示桌面歌词并最小化主窗口）"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- main_lyrics_font_size -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="主窗口歌词字号" FontWeight="SemiBold" />
+                                <TextBlock Text="main_lyrics_font_size" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <TextBox x:Name="FontSizeBox" Grid.Column="1" Height="28" FontSize="13"
+                                     VerticalContentAlignment="Center" Background="#12141D"
+                                     Foreground="#EDEDF2" BorderBrush="#3C3F55" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="主窗口歌词绝对字号（16–72），当前行高亮按 1.15 倍放大"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- desktop_click_through -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="点击穿透" FontWeight="SemiBold" />
+                                <TextBlock Text="desktop_click_through" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <CheckBox x:Name="ClickThroughCheck" Grid.Column="1" VerticalAlignment="Center"
+                                      Content="窗口不拦截任何鼠标事件" Foreground="#EDEDF2" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="开启后桌面歌词窗口不接收鼠标（WS_EX_TRANSPARENT）；需先关闭才能拖动"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- desktop_locked -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="锁定位置" FontWeight="SemiBold" />
+                                <TextBlock Text="desktop_locked" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <CheckBox x:Name="LockedCheck" Grid.Column="1" VerticalAlignment="Center"
+                                      Content="禁止拖动与缩放" Foreground="#EDEDF2" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="锁定后禁止拖动换位与缩放（与点击穿透正交，互不影响）"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- desktop_topmost -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="置顶" FontWeight="SemiBold" />
+                                <TextBlock Text="desktop_topmost" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <CheckBox x:Name="TopmostCheck" Grid.Column="1" VerticalAlignment="Center"
+                                      Content="窗口置顶显示" Foreground="#EDEDF2" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="桌面歌词窗口是否始终在其他窗口之上" Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- desktop_opacity -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="窗口透明度" FontWeight="SemiBold" />
+                                <TextBlock Text="desktop_opacity" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <TextBox x:Name="OpacityBox" Grid.Column="1" Height="28" FontSize="13"
+                                     VerticalContentAlignment="Center" Background="#12141D"
+                                     Foreground="#EDEDF2" BorderBrush="#3C3F55" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="桌面歌词窗口整体透明度（0.1–1.0，1.0 = 不透明）"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- desktop_font_scale -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="字号缩放系数" FontWeight="SemiBold" />
+                                <TextBlock Text="desktop_font_scale" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <TextBox x:Name="FontScaleBox" Grid.Column="1" Height="28" FontSize="13"
+                                     VerticalContentAlignment="Center" Background="#12141D"
+                                     Foreground="#EDEDF2" BorderBrush="#3C3F55" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="桌面歌词字号缩放（0.5–2.0），与窗口尺寸解耦"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- desktop_show_two_lines -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="双行模式" FontWeight="SemiBold" />
+                                <TextBlock Text="desktop_show_two_lines" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <CheckBox x:Name="TwoLinesCheck" Grid.Column="1" VerticalAlignment="Center"
+                                      Content="显示当前行 + 下一行" Foreground="#EDEDF2" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="桌面歌词双行渲染；关闭后只显示当前行" Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- desktop_when_no_lyrics -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="无歌词行为" FontWeight="SemiBold" />
+                                <TextBlock Text="desktop_when_no_lyrics" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <ComboBox x:Name="NoLyricsBox" Grid.Column="1" Height="28" FontSize="13"
+                                      Background="#12141D" Foreground="#EDEDF2" BorderBrush="#3C3F55">
+                                <ComboBoxItem Content="minimal（显示极简占位）" />
+                                <ComboBoxItem Content="hide（隐藏窗口）" />
+                            </ComboBox>
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="有播放但无歌词时：显示「暂无歌词」占位或直接隐藏窗口"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <!-- desktop_line_animation -->
+                        <Grid Margin="0,8,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180" />
+                                <ColumnDefinition Width="300" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="换行动画" FontWeight="SemiBold" />
+                                <TextBlock Text="desktop_line_animation" FontSize="11" Foreground="#8A8A98" />
+                            </StackPanel>
+                            <CheckBox x:Name="LineAnimCheck" Grid.Column="1" VerticalAlignment="Center"
+                                      Content="行切换过渡动画" Foreground="#EDEDF2" IsEnabled="False" />
+                            <TextBlock Grid.Column="2" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       Text="占位项：v1 换行硬切（Lyricify 4 实测校准），动画后续版本实现"
+                                       Foreground="#8A8A98" TextWrapping="Wrap" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
