@@ -78,6 +78,17 @@ YTM.Lyrics：YouTube Music 桌面歌词应用。C# .NET 8 + WPF 桌面端 + 油�
 
 ## 环境坑位手册（每条都烧过钱，勿再踩）
 
+> **⚠️ 沙箱状态变更（2026-08-12 晚）**：用户已关闭沙盒（Settings → Security → 沙盒 OFF），当前为**完整权限环境**。
+> 下方坑位仅在「沙盒开启」时才踩到；沙盒关闭后，以下绕路**全部不再需要**，别再惯性使用：
+> - 构建参数 `MSBuildEnableWorkloadResolver=false -maxcpucount:1` → 裸 `dotnet build` 即可
+> - 离线 feed / Python 拉 NuGet 包 → 直接连 nuget.org restore
+> - mock 源 + 样本回放验证 → **直连真实歌词源**（QQ/网易云/酷狗等），尤其翻译字段接入（卡 2）不用靠样本猜
+> - `GH_CONFIG_DIR` 指真实 APPDATA → gh 直接读凭据
+> - 取证 `--cache-db/--log-dir/--settings-path` 指工作区 → 沙箱才需要
+> - git push 提权 → 直接 push
+>
+> 沙盒关闭期间 AI 权限完整（可读写/删除系统任意文件），破坏性操作仍需先确认；**用完提醒用户开回沙盒**（见「沙盒与提权约定」）。
+
 1. **构建必须带参**：`-property:MSBuildEnableWorkloadResolver=false -maxcpucount:1`
 2. **DOTNET_CLI_HOME 前置**：`$env:DOTNET_CLI_HOME="<项目>\.nuget\dotnet-home"`
 3. **沙箱 Schannel 死**：.NET/curl 出不了网；Python (OpenSSL) 可出网
