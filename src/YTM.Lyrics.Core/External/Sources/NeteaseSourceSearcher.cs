@@ -46,21 +46,31 @@ public sealed class NeteaseSourceSearcher : SourceSearcherBase
     protected override async Task<SourceLyricsResult> GetLyricsCoreAsync(string sourceId, CancellationToken ct)
     {
         var result = await _api.GetLyric(sourceId).ConfigureAwait(false);
+        return MapLyricResult(result, Source);
+    }
+
+    /// <summary>
+    /// GetLyric 响应 → 歌词结果（internal 供单测 mock 验证；TASK-504 取 Tlyric 填入 TranslationText）。
+    /// </summary>
+    internal static SourceLyricsResult MapLyricResult(LyricResult? result, LyricsSourceKind source)
+    {
         if (result is null || result.Nolyric || result.Uncollected)
         {
-            return new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, $"[{Source}] 无歌词（Nolyric/Uncollected/无返回）");
+            return new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, null, $"[{source}] 无歌词（Nolyric/Uncollected/无返回）");
         }
 
         // 主歌词：Yrc（逐字）优先，缺省回退 Lrc。Tlyric（翻译）/Romalrc（罗马音）为独立字段，
-        // 合并规则属 Parsing 层（TASK-204），本层只交主歌词原文（见上报决策点 D3）。
+        // 翻译合并规则属 Parsing 层（TASK-504 TranslationMerger），本层只交主歌词原文 + 翻译原文。
         var hasYrc = !string.IsNullOrWhiteSpace(result.Yrc?.Lyric);
         var text = hasYrc ? result.Yrc!.Lyric : result.Lrc?.Lyric;
         if (string.IsNullOrWhiteSpace(text))
         {
-            return new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, $"[{Source}] 歌词字段为空");
+            return new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, null, $"[{source}] 歌词字段为空");
         }
 
-        return new SourceLyricsResult(true, hasYrc ? LyricsRawFormat.Yrc : LyricsRawFormat.Lrc, text, null);
+        // TASK-504：Tlyric 为独立 LRC 字段（带时间戳，格式确定；注意主歌词走 Yrc 时翻译仍是 Tlyric）
+        var translation = string.IsNullOrWhiteSpace(result.Tlyric?.Lyric) ? null : result.Tlyric!.Lyric;
+        return new SourceLyricsResult(true, hasYrc ? LyricsRawFormat.Yrc : LyricsRawFormat.Lrc, text, translation, null);
     }
 
     /// <summary>

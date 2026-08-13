@@ -78,6 +78,34 @@ public class CleaningTests
     }
 
     [Fact]
+    public void 分隔符拆分_歌名罗马音模式_首段为歌名()
+    {
+        // YTM 官方频道「歌名 - 罗马音」：首段 CJK 歌名 + 后续纯拉丁罗马音，不应把首段当艺人
+        //（艺人已在频道名里），否则「トリセツ」被误当艺人、「Torisetsu」误当歌名（真机反馈）
+        var r = _cleaner.Clean(new TrackInfo("トリセツ - Torisetsu", "西野カナ - Topic", 100));
+        Assert.Equal("トリセツ", r.Title);
+        Assert.Equal(new[] { "西野カナ" }, r.ArtistCandidates);
+    }
+
+    [Fact]
+    public void 分隔符拆分_歌名罗马音模式_句号结尾()
+    {
+        // 句号结尾的日文歌名 + 罗马音（真机反馈：乙女どもよ。 - Otomedomoyo）
+        var r = _cleaner.Clean(new TrackInfo("乙女どもよ。 - Otomedomoyo", "CHiCO with HoneyWorks - Topic", 100));
+        Assert.Equal("乙女どもよ。", r.Title);
+        Assert.Equal(new[] { "CHiCO with HoneyWorks" }, r.ArtistCandidates);
+    }
+
+    [Fact]
+    public void 分隔符拆分_艺人段匹配优先于罗马音启发式()
+    {
+        // 「周杰伦 - Mojito」首段 CJK + 后续拉丁，但首段与频道名匹配 → 走艺人段匹配，不触发罗马音启发式
+        var r = _cleaner.Clean(new TrackInfo("周杰伦 - Mojito", "周杰伦 - Topic", 100));
+        Assert.Equal("Mojito", r.Title);
+        Assert.Equal(new[] { "周杰伦" }, r.ArtistCandidates);
+    }
+
+    [Fact]
     public void 分隔符拆分_多段_艺人段命中后其余重组为歌名()
     {
         var r = _cleaner.Clean(new TrackInfo("Ed Sheeran - Perfect - YouTube Music", "Ed Sheeran - Topic", 100));

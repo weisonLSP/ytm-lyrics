@@ -29,7 +29,7 @@ public class LyricsEngineTests
         var parser = new StubLyricsDocumentParser();
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)), parser: parser);
 
-        cache.Seed(new CachedLyrics(CacheKey.Compute(Track(), Dur), "bound-raw", LyricsSourceKind.QQMusic, UserBound: true, 0, DateTimeOffset.UtcNow));
+        cache.Seed(new CachedLyrics(CacheKey.Compute(Track(), Dur), "bound-raw", null, LyricsSourceKind.QQMusic, UserBound: true, 0, DateTimeOffset.UtcNow));
 
         var result = await engine.GetLyricsAsync(Track(), Dur);
 
@@ -50,7 +50,7 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(LyricsSourceKind.QQMusic, search: () => EngineTestFactory.Ok(EngineTestFactory.High()));
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)));
 
-        cache.Seed(new CachedLyrics(CacheKey.Compute(Track(), Dur), "cached-raw", LyricsSourceKind.Kugou, UserBound: false, 0, DateTimeOffset.UtcNow));
+        cache.Seed(new CachedLyrics(CacheKey.Compute(Track(), Dur), "cached-raw", null, LyricsSourceKind.Kugou, UserBound: false, 0, DateTimeOffset.UtcNow));
 
         var result = await engine.GetLyricsAsync(Track(), Dur);
 
@@ -243,7 +243,7 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(
             LyricsSourceKind.QQMusic,
             search: () => EngineTestFactory.Ok(EngineTestFactory.High("qq-id")),
-            fetch: _ => new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, "[QQMusic] 取词失败"));
+            fetch: _ => new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, null, "[QQMusic] 取词失败"));
         var b = new FakeSourceSearcher(
             LyricsSourceKind.Kugou,
             search: () => EngineTestFactory.Ok(EngineTestFactory.High("kg-id")));
@@ -303,7 +303,7 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(
             LyricsSourceKind.Kugou,
             search: () => EngineTestFactory.Ok(EngineTestFactory.High("kg-id")),
-            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Krc, "krc-text", null));
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Krc, "krc-text", null, null));
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.Kugou, a)), parser: parser);
 
         var result = await engine.GetLyricsAsync(Track(), Dur);
@@ -333,11 +333,11 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(
             LyricsSourceKind.QQMusic,
             search: () => EngineTestFactory.Ok(EngineTestFactory.High("qq-id")),
-            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Krc, "krc-empty", null));
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Krc, "krc-empty", null, null));
         var b = new FakeSourceSearcher(
             LyricsSourceKind.Kugou,
             search: () => EngineTestFactory.Ok(EngineTestFactory.High("kg-id")),
-            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Lrc, "lrc-ok", null));
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Lrc, "lrc-ok", null, null));
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b)), parser: parser);
 
         var result = await engine.GetLyricsAsync(Track(), Dur);
@@ -359,11 +359,11 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(
             LyricsSourceKind.QQMusic,
             search: () => EngineTestFactory.Ok(EngineTestFactory.High("qq-id")),
-            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Krc, "krc-empty", null));
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Krc, "krc-empty", null, null));
         var b = new FakeSourceSearcher(
             LyricsSourceKind.Kugou,
             search: () => EngineTestFactory.Ok(EngineTestFactory.High("kg-id")),
-            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Lrc, "lrc-empty", null));
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Lrc, "lrc-empty", null, null));
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b)), parser: parser);
 
         var result = await engine.GetLyricsAsync(Track(), Dur);
@@ -382,11 +382,11 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(
             LyricsSourceKind.QQMusic,
             search: () => EngineTestFactory.Ok(EngineTestFactory.High("qq-id")),
-            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Lrc, "fresh-ok", null));
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Lrc, "fresh-ok", null, null));
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)), parser: parser);
 
         // 缓存里是旧版本解析器落盘的 KRC（现在解析空）→ 不应短路返回空文档
-        cache.Seed(new CachedLyrics(CacheKey.Compute(Track(), Dur), "stale-empty", LyricsSourceKind.Kugou, UserBound: false, 0, DateTimeOffset.UtcNow));
+        cache.Seed(new CachedLyrics(CacheKey.Compute(Track(), Dur), "stale-empty", null, LyricsSourceKind.Kugou, UserBound: false, 0, DateTimeOffset.UtcNow));
 
         var result = await engine.GetLyricsAsync(Track(), Dur);
 
@@ -406,7 +406,7 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(
             LyricsSourceKind.QQMusic,
             search: () => EngineTestFactory.Ok(EngineTestFactory.High()),
-            fetch: _ => new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, "取词失败（本测试只验证节流间隔）"));
+            fetch: _ => new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, null, "取词失败（本测试只验证节流间隔）"));
         // 真实 500ms 节流：第一首 search→fetch 各占一个节流槽；第二首（不同键）再触发同源 search
         var engine = new LyricsEngine(
             cache,
@@ -450,5 +450,84 @@ public class LyricsEngineTests
         var bSearch = b.Calls[0].Time;
         Assert.True(bSearch - aSearch < TimeSpan.FromMilliseconds(300),
             $"异源 B 的搜索被 A 的计时器拖慢（{(bSearch - aSearch).TotalMilliseconds:F0}ms）");
+    }
+
+    // ---------- TASK-504：翻译随缓存往返 ----------
+
+    [Fact]
+    public async Task 新取词_翻译随结果进入解析缝与缓存()
+    {
+        const string translation = "[00:01.00]译文\r\n";
+        var cache = new FakeCache();
+        var parser = new StubLyricsDocumentParser();
+        var a = new FakeSourceSearcher(
+            LyricsSourceKind.QQMusic,
+            search: () => EngineTestFactory.Ok(EngineTestFactory.High("qq-id")),
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Qrc, "qrc-raw", translation, null));
+        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)), parser: parser);
+
+        await engine.GetLyricsAsync(Track(), Dur);
+
+        // 解析缝收到翻译文本（TASK-504：Parse 第三参）
+        var call = Assert.Single(parser.Calls);
+        Assert.Equal(translation, call.TranslationText);
+        // 缓存写入含翻译文本（缓存命中后翻译仍恢复）
+        var stored = Assert.Single(cache.Stored);
+        Assert.Equal(translation, stored.TranslationText);
+    }
+
+    [Fact]
+    public async Task 缓存命中_翻译随缓存恢复传给解析缝()
+    {
+        const string translation = "[00:01.00]译文\r\n";
+        var cache = new FakeCache();
+        cache.Seed(new CachedLyrics(CacheKey.Compute(Track(), Dur), "cached-raw", translation,
+            LyricsSourceKind.QQMusic, UserBound: false, 0, DateTimeOffset.UtcNow));
+        var parser = new StubLyricsDocumentParser();
+        var engine = EngineTestFactory.Create(cache, Searchers(), parser: parser);
+
+        var result = await engine.GetLyricsAsync(Track(), Dur);
+
+        Assert.True(result.FromCache);
+        Assert.True(result.Document!.Lines.Count > 0);
+        var call = Assert.Single(parser.Calls);
+        Assert.Equal("cached-raw", call.RawText);
+        Assert.Equal(translation, call.TranslationText); // 翻译随缓存恢复（TASK-504 验收 4）
+    }
+
+    [Fact]
+    public async Task 缓存命中_无翻译旧条目_解析缝收到null()
+    {
+        var cache = new FakeCache();
+        cache.Seed(new CachedLyrics(CacheKey.Compute(Track(), Dur), "cached-raw", null,
+            LyricsSourceKind.QQMusic, UserBound: false, 0, DateTimeOffset.UtcNow));
+        var parser = new StubLyricsDocumentParser();
+        var engine = EngineTestFactory.Create(cache, Searchers(), parser: parser);
+
+        await engine.GetLyricsAsync(Track(), Dur);
+
+        var call = Assert.Single(parser.Calls);
+        Assert.Null(call.TranslationText); // 旧缓存无翻译 → null 不合并
+    }
+
+    [Fact]
+    public async Task F9绑定_翻译随结果进入解析缝与绑定缓存()
+    {
+        const string translation = "[00:01.00]译文\r\n";
+        var cache = new FakeCache();
+        var parser = new StubLyricsDocumentParser();
+        var a = new FakeSourceSearcher(
+            LyricsSourceKind.QQMusic,
+            search: () => EngineTestFactory.Ok(),
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Qrc, "bound-raw", translation, null));
+        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)), parser: parser);
+        var selected = new SourceSearchResult(LyricsSourceKind.QQMusic, "qq-id", "Song", new[] { "Artist" }, null, 240);
+
+        await engine.BindLyricsAsync(Track(), Dur, selected);
+
+        var call = Assert.Single(parser.Calls);
+        Assert.Equal(translation, call.TranslationText);
+        var stored = await cache.TryGetAsync(CacheKey.Compute(Track(), Dur));
+        Assert.Equal(translation, stored!.TranslationText); // 绑定缓存同样携带翻译
     }
 }

@@ -1,7 +1,7 @@
 # HANDOFF：会话交接包（M4 完成态）
 
 > 本文件是会话换岗的唯一启动包。新窗口的 raphael 读这份文件 + 指向的文档即可恢复全部上下文。
-> 最后更新：2026-08-13（backlog 已修 4 条 + 新增托盘退出修复；剩卡 2 翻译链路。详见「2026-08-13 增量」）
+> 最后更新：2026-08-13（7 条真机反馈 backlog 全部修完：托盘/UI对比度/预填/F9常驻 + 翻译链路 TASK-504/505。详见「2026-08-13 增量」）
 
 ## 30 秒速览
 
@@ -9,7 +9,7 @@ YTM.Lyrics：YouTube Music 桌面歌词应用。C# .NET 8 + WPF 桌面端 + 油�
 
 **现状**：M1（播放链路）、M2（歌词引擎）、M3（桌面歌词窗口）、M4（F9 手动校正 + 设置页 + 稳定性 + 发布）全部完成。dist/YTM.Lyrics.exe 为 framework-dependent 单文件（ADR-12），含 M1–M4 全部改动（2026-08-12 23:35 发布）。单测基线 201 全绿。
 
-**下一步**：修 7 条真机反馈 backlog（见「已知问题与 Backlog」与文末「明天开工指引」），然后真机走查 M3+M4 全功能（清单见文末），连续使用一周验证「无重启需求」。之后按需排期 P1 项（F10 逐字卡拉 OK、F11 歌词偏移、F12 翻译开关已有）。
+**下一步**：真机走查 M3+M4 全功能 + 翻译链路（清单见文末），连续使用一周验证「无重启需求」。之后按需排期 P1 项（F10 逐字卡拉 OK、F11 歌词偏移、F12 翻译开关已有）。
 
 ## 2026-08-13 增量（当天交接必读）
 
@@ -41,6 +41,10 @@ $env:NUGET_PACKAGES="E:\Code\OH-WorkSpace\ytm-lyrics\.nuget\packages"
 | 托盘+退出修复 | TASK-501 | ShutdownMode=OnMainWindowClose + 原生 Shell_NotifyIcon 托盘（显示主窗口/切换桌面歌词/退出），点主窗口 X 真退出 | 用户今日新提（非原 7 条） |
 | UI 对比度+预填 | TASK-502 | 设置页 TabItem 深色模板 + ComboBox 深色主题 + 搜索框预填歌名 | ① ② ⑦ |
 | F9 常驻入口 | TASK-503 | 常驻「搜索歌词」按钮 + 「清除缓存重搜」动作（复用 UnbindAsync，无新 Core 接口） | ⑥ |
+| 翻译字段接入 | TASK-504 | QQ Trans / 网易云 Tlyric / Musixmatch GetTranslations 三源翻译接入 + TranslationMerger（10ms 量化时间戳对齐）+ credits 元数据行过滤 | ③ ④ ⑤（数据层） |
+| 桌面歌词翻译渲染 | TASK-505 | DesktopLyricsWindow 翻译副行（当前+下一行，小字暗色，show_translation 门控，高度不足顶对齐防御） | ③（渲染层） |
+| 桌面歌词视觉重构 | 口述需求 | 纯透明+悬停磨砂 #80000000+文字阴影+Viewbox 等比缩放 4 行不截断+当前行绿 #98d33c/下一句白+Thumb 透明化（去白框）+alpha=1 透明区域可拖动 | 真机反馈 |
+| 清洗器罗马音识别 | 口述需求 | 「歌名-罗马音」模式（首段 CJK + 后续纯拉丁 → 首段=歌名），含「トリセツ/乙女どもよ」用例 | 真机反馈 |
 
 ### 新增/修改文件（今日）
 
@@ -48,10 +52,13 @@ $env:NUGET_PACKAGES="E:\Code\OH-WorkSpace\ytm-lyrics\.nuget\packages"
 - 修改：`App.xaml`（ShutdownMode）、`App.xaml.cs`（托盘接线+OnExit 移除）、`NativeMethods.cs`（托盘/菜单 P/Invoke）、`SettingsWindow.xaml`（TabItem+ComboBox 深色）、`MainWindow.xaml`+`.xaml.cs`（搜索歌词/清除缓存重搜按钮 + 预填 + ClearCacheAndReload 公共方法）
 - 新增：`nuget.config`（离线源，指向 E:\Code 的 local-feed）
 
-### 遗留（卡 2，留低谷跑）
+### 遗留（真机走查观察点）
 
-- ③ 桌面歌词不支持翻译行、④ 翻译字段接入残缺（QQ Trans / 网易云 Tlyric / Musixmatch GetTranslations）、⑤ 网易云无版权歌元数据行过滤——三件事打包卡 2，涉及 Core 层 SourceLyricsResult 契约变更，签发前想清翻译数据随两段式 Search→GetLyrics 的流转。
-- 真机走查：托盘图标白色在浅色任务栏可能偏淡（待用户确认）、托盘/热键交互、设置页下拉观感。
+- 翻译链路（卡 2）已由 TASK-504（数据层）+ TASK-505（桌面渲染）完成，7 条 backlog 全部清零。
+- 桌面歌词 4 行不截断已用 Viewbox 等比缩放（Stretch=Uniform）解决；但默认 600x120 窗口下 4 行字会略小，字号观感/悬停磨砂 #80000000 深浅/阴影浓淡待真机确认。
+- **剩余 backlog（明日可开工）**：⑨ 探针元数据罗马音（mediaSession.title 纯拉丁时降级 document.title）；⑩ 桌面歌词缺 duration 延迟搜索（复用 TrackSearchDeferrer）。详见「已知问题与 Backlog」。
+- **公司环境注意**：工作台路径 E:\Codex 可能在公司机器不同；git 凭据/代理（127.0.0.1:7890）需确认；沙盒默认 ON，提权需说明原因、用完提醒开回。
+- 真机走查：托盘图标白色在浅色任务栏可能偏淡（待用户确认）、托盘/热键交互、设置页下拉观感、翻译副行观感。
 
 ---
 
@@ -171,9 +178,13 @@ $env:NUGET_PACKAGES="E:\Code\OH-WorkSpace\ytm-lyrics\.nuget\packages"
 | 桌面歌词窗口热键/穿透需真机验证（沙箱无法模拟） | 待真机走查 | 用户 |
 | 设置窗口 label 字体黑色看不清（深灰底未适配前景色） | 待修 | 真机反馈 ① |
 | 设置窗口 ComboBox 下拉白底 + 选项近白色字体看不清（默认控件未跟深色主题） | 待修 | 真机反馈 ② |
-| 桌面歌词窗口不支持翻译行（当前只渲染主词行，翻译行仅主窗口有） | 待排期（需对齐 PRD F12 是否扩展到桌面歌词） | 真机反馈 ③ |
-| **翻译字段接入残缺**：QQ `Trans` 字段未取、网易云 `Tlyric` 丢弃、Musixmatch `GetTranslations` 未调；当前唯一出翻译路径 = 酷狗 KRC 带 `[language:]` 段。表现为「有些歌有翻译有些没」（与冷门无关） | 待排期（数据层，先捞翻译字段，再谈桌面歌词显示） | 真机反馈 ④ |
-| **网易云无版权歌返回「作词/作曲」元数据行**（非歌词正文），被当歌词缓存+高置信命中，歌词面板只显示 credits 无正文。根因：网易云对部分日文/无正文歌的 Lrc 只含 credits 元数据，清洗/解析层未识别过滤 | 待排期（数据层：识别并过滤「作词/作曲/编曲」等元数据行） | 真机反馈 ⑤ |
+| ~~桌面歌词窗口不支持翻译行~~ | ✅ 已修（TASK-505：翻译副行渲染，受 show_translation 控制） | 真机反馈 ③ |
+| ~~**翻译字段接入残缺**~~ | ✅ 已修（TASK-504：QQ Trans/网易云 Tlyric/Musixmatch GetTranslations 三源接入 + TranslationMerger 合并 + 随缓存往返） | 真机反馈 ④ |
+| ~~**网易云无版权歌返回「作词/作曲」元数据行**~~ | ✅ 已修（TASK-504：LrcLyricsConverter credits 行过滤，正则含空格容错） | 真机反馈 ⑤ |
+| 网易云「纯音乐，请欣赏」占位行（纯音乐歌无正文时返回该行，被当歌词） | 待排期（无歌词判定语义，与 credits 过滤分开处理） | 2026-08-13 新提 |
+| **特摄/翻唱曲绑定全失败**：搜索 "Eiyuu" 命中同名翻唱（EXIT TRANCE/aLf/Navi Kisaragi 等），但 QQ 歌词空、酷狗索引无候选、Apple 无返回、网易云仅 56 字节（疑似 credits 被 TASK-504 过滤为空文档）。原曲「英雄」(Ultraman Nexus OP) 在主流中文源歌词覆盖不足。手动搜索只有标题维（无艺人/时长），同名曲无法区分。 | 待排期（① 绑定失败提示区分「源无歌词」vs「异常」② 罗马音→日文搜索映射 P2 ③ 特摄曲数据源覆盖） | 真机反馈 ⑧ |
+| **探针元数据罗马音问题（日语歌）**：YTM `mediaSession.metadata.title` 对日语歌给罗马音（"Torisetsu"/"Otomedomoyo"），页面 document.title 才含日文（「トリセツ - Torisetsu」/「乙女どもよ。 - Otomedomoyo」）。探针优先 mediaSession → RawTitle 是罗马音，清洗器无法恢复日文。日志实证：StartLoad title='Torisetsu'/'Otomedomoyo'（非日文）。此前「トリセツ」清洗修复（罗马音识别）不解决此问题（RawTitle 本就是纯罗马音，无分隔符可拆）。 | 待排期（探针：mediaSession.title 纯拉丁且 document.title/videoDetails.title 含 CJK 时降级用后者；需真机验证 videoDetails.title 是否含日文原文） | 真机反馈 ⑨ |
+| **桌面歌词翻译时有时无**：桌面歌词窗口缺 duration 延迟搜索（TrackSearchDeferrer 只在 MainWindow 用），探针首帧 duration=0 时桌面窗口立即用 duration=0 缓存键搜索，与主窗口（defer 后用正确 duration）缓存键不同，各自取词翻译不一致。表现为「歌词面板有翻译、桌面歌词框有时没有」。日志实证：Otomedomoyo 出现 key=de00...(duration=0) 与 key=15f2...(duration=252) 两个缓存键。 | 待修（DesktopLyricsWindow 复用 Core/Playback/TrackSearchDeferrer，duration=0 时延迟搜索至首个 duration>0 快照或 3s 超时） | 真机反馈 ⑩ |
 | **F9 手动搜索入口触发太窄 + 无常驻入口（“限时促销”）**：仅在 Low/None 时被动闪现，且切歌后 ApplyLyricsResult 重跑（新歌 High）面板即消失；无主动打开按钮，用户想用都找不到。且缓存命中后改源优先级不重搜（命中直接返回） | 待排期（F9 入口应常驻/主动可开，如「设置」旁加「搜索歌词」按钮，随时手动纠正；或加「清除缓存重搜」动作） | 真机反馈 ⑥ |
 | **手动搜索框未预填歌名**：面板出现时搜索框空白，需用户手敲歌名。应预填当前曲目清洗后歌名（或歌名+艺人），用户点「搜索」即用 | 待排期（UX：面板出现时自动填 SearchKeywordBox = 当前曲目歌名） | 真机反馈 ⑦ |
 | YRC/TTML/MusixmatchJson 解析扩展点 | 仅 QRC/LRC/KRC | 按需 |
@@ -216,7 +227,7 @@ $env:NUGET_PACKAGES="E:\Code\OH-WorkSpace\ytm-lyrics\.nuget\packages"
 12. Ctrl+Shift+R → 桌面歌词窗口重置到屏幕居中
 13. **连续使用一周无重启需求**（M4 验收门）
 
-## 明天开工指引（修 7 条真机反馈 backlog）
+## 明天开工指引（✅ 已于 2026-08-13 全部完成，保留作历史）
 
 > 建议拆 3 张任务卡，按依赖与手感优先级排：
 

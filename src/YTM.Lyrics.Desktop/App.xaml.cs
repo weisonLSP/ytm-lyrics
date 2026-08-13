@@ -313,7 +313,7 @@ public partial class App : Application
                     _ => throw new ArgumentException($"未知缓存格式: {fmt}"),
                 };
                 cache.StoreAsync(new CachedLyrics(
-                    key, raw, source, UserBound: false, OffsetSec: 0, StoredAt: DateTimeOffset.UtcNow))
+                    key, raw, null, source, UserBound: false, OffsetSec: 0, StoredAt: DateTimeOffset.UtcNow))
                     .GetAwaiter().GetResult();
                 Trace.WriteLine($"[App] preloaded lyrics cache: key={key} fmt={fmt} source={source}");
             }

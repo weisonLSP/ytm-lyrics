@@ -113,4 +113,50 @@ public class LyricsDocumentParserBridgeTests
         var doc = _bridge.Parse("<ttml/>", LyricsSourceKind.AppleMusic, null);
         AssertNoLines(doc);
     }
+
+    // ---------- TASK-504：翻译合并接入 ----------
+
+    [Fact]
+    public void 翻译文本_LRC时间戳对齐_合并进文档()
+    {
+        var doc = _bridge.Parse(LrcText, LyricsSourceKind.Netease, LyricsRawFormat.Lrc,
+            translationText: "[00:01.00]你好世界\r\n[00:02.50]第二行\r\n");
+
+        Assert.Equal(2, doc.Lines.Count);
+        Assert.Equal("你好世界", doc.Lines[0].Translation);
+        Assert.Equal("第二行", doc.Lines[1].Translation);
+    }
+
+    [Fact]
+    public void 翻译文本_Musixmatch中间格式_按行文本对齐()
+    {
+        // Musixmatch 原文走 MusixmatchParser（v1 扩展点落空文档）——用 LRC 主词文本演示合并契约
+        var doc = _bridge.Parse(LrcText, LyricsSourceKind.Musixmatch, LyricsRawFormat.Lrc,
+            translationText: """[{"matchedLine":"Hello world","translation":"你好世界"}]""");
+
+        Assert.Equal(2, doc.Lines.Count);
+        Assert.Equal("你好世界", doc.Lines[0].Translation);
+        Assert.Null(doc.Lines[1].Translation);
+    }
+
+    [Fact]
+    public void 翻译文本为null或空白_不合并_主歌词原样返回()
+    {
+        var doc1 = _bridge.Parse(LrcText, LyricsSourceKind.Netease, LyricsRawFormat.Lrc, translationText: null);
+        var doc2 = _bridge.Parse(LrcText, LyricsSourceKind.Netease, LyricsRawFormat.Lrc, translationText: "  ");
+
+        Assert.Null(doc1.Lines[0].Translation);
+        Assert.Null(doc2.Lines[0].Translation);
+    }
+
+    [Fact]
+    public void 翻译文本损坏_静默降级_主歌词仍返回()
+    {
+        // 翻译合并失败不得让整首歌词失败（TASK-504 边界）
+        var doc = _bridge.Parse(LrcText, LyricsSourceKind.Netease, LyricsRawFormat.Lrc, translationText: "{bad json");
+
+        Assert.Equal(2, doc.Lines.Count);
+        Assert.Equal("Hello world", doc.Lines[0].Text);
+        Assert.Null(doc.Lines[0].Translation);
+    }
 }

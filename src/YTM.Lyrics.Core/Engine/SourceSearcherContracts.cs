@@ -58,10 +58,20 @@ public sealed record SourceSearchOutcome(
 /// 歌词原文获取结果（两段式第二段）。<see cref="Format"/> 随原文显式声明（坑 #1），
 /// 失败时 Format=Unknown 且 ErrorMessage 带源标识（坑 #3）。
 /// </summary>
+/// <param name="Success">是否成功。</param>
+/// <param name="Format">原文格式（坑 #1：显式声明，禁止自动探测）。</param>
+/// <param name="RawText">主歌词原文。</param>
+/// <param name="TranslationText">翻译原文，格式由源决定（TASK-504 约定表）：
+/// QQMusic=带时间戳的 LRC（`[mm:ss.xx]译文`，已由 Helper 解密为明文）；
+/// Netease=带时间戳的 LRC（Tlyric.Lyric）；
+/// Musixmatch=适配器序列化的 JSON（`[{"matchedLine":"原文行","translation":"译文"}]`）；
+/// 源无翻译时 null（酷狗 KRC 翻译已内嵌在原文，本字段恒 null）。</param>
+/// <param name="ErrorMessage">失败原因（带源标识）；成功时为 null。</param>
 public sealed record SourceLyricsResult(
     bool Success,
     LyricsRawFormat Format,
     string? RawText,
+    string? TranslationText,
     string? ErrorMessage);
 
 /// <summary>

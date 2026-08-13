@@ -50,16 +50,17 @@ public sealed class KugouSourceSearcher : SourceSearcherBase
         var candidate = index?.Candidates?.FirstOrDefault(c => !string.IsNullOrEmpty(c.Id));
         if (candidate is null)
         {
-            return new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, $"[{Source}] 歌词索引无候选");
+            return new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, null, $"[{Source}] 歌词索引无候选");
         }
 
         // 第二跳：KRC 解密（Async 版本，坑 #8）
         var text = await Helper.GetLyricsAsync(candidate.Id, candidate.AccessKey).ConfigureAwait(false);
         if (string.IsNullOrEmpty(text))
         {
-            return new SourceLyricsResult(false, LyricsRawFormat.Krc, null, $"[{Source}] KRC 解密结果为空");
+            return new SourceLyricsResult(false, LyricsRawFormat.Krc, null, null, $"[{Source}] KRC 解密结果为空");
         }
 
-        return new SourceLyricsResult(true, LyricsRawFormat.Krc, text, null);
+        // KRC 翻译已内嵌 [language:] 段（KrcLyricsConverter 处理），TranslationText 恒 null（TASK-504）
+        return new SourceLyricsResult(true, LyricsRawFormat.Krc, text, null, null);
     }
 }

@@ -1,3 +1,4 @@
+using LiteDB;
 using YTM.Lyrics.Core.Cache;
 using YTM.Lyrics.Core.Engine;
 
@@ -42,8 +43,8 @@ public class LiteDbLyricsCacheTests : IDisposable
     }
 
     private static CachedLyrics Entry(string key, string text, LyricsSourceKind source = LyricsSourceKind.QQMusic,
-        bool userBound = false, double offsetSec = 0)
-        => new(key, text, source, userBound, offsetSec, DateTimeOffset.MinValue);
+        bool userBound = false, double offsetSec = 0, string? translationText = null)
+        => new(key, text, translationText, source, userBound, offsetSec, DateTimeOffset.MinValue);
 
     [Fact]
     public void 默认路径_指向AppData的YTM_Lyrics目录()
@@ -311,5 +312,66 @@ public class LiteDbLyricsCacheTests : IDisposable
         Assert.NotNull(bound);
         Assert.True(bound.UserBound);
         Assert.StartsWith("b", bound.RawText);
+    }
+
+    // ---------- TASK-504：TranslationText 随缓存往返 ----------
+
+    [Fact]
+    public async Task TranslationText_存储往返一致()
+    {
+        var cache = NewCache();
+        var key = CacheKey.Compute("T", "A", 100);
+        const string translation = "[00:01.00]译文\r\n";
+
+        await cache.StoreAsync(Entry(key, "raw", translationText: translation));
+
+        var hit = await cache.TryGetAsync(key);
+        Assert.Equal("raw", hit!.RawText);
+        // LiteDB BsonMapper.TrimWhitespace 默认 true（5.0.21 文档：serialize 时 .Trim() 字符串），
+        // 尾随 \r\n 会被吃掉；译文内容不丢（LrcParser 按行解析不受影响）——断言内容一致而非字节一致
+        Assert.NotNull(hit.TranslationText);
+        Assert.Equal("[00:01.00]译文", hit.TranslationText!.TrimEnd());
+        Assert.Contains("译文", hit.TranslationText);
+    }
+
+    [Fact]
+    public async Task TranslationText_绑定条目同样往返()
+    {
+        var cache = NewCache();
+        var key = CacheKey.Compute("T", "A", 100);
+        const string translation = "[00:02.00]绑定译文\r\n";
+
+        await cache.BindUserChoiceAsync(key, Entry(key, "bound-raw", translationText: translation));
+
+        var hit = await cache.TryGetAsync(key);
+        Assert.NotNull(hit!.TranslationText);
+        Assert.Equal("[00:02.00]绑定译文", hit.TranslationText!.TrimEnd());
+        Assert.True(hit.UserBound);
+    }
+
+    [Fact]
+    public async Task TranslationText_旧文档缺失字段_读为null不炸()
+    {
+        // TASK-504：LiteDB 对旧文档缺失字段自动返回 null，无需迁移。
+        // 模拟旧 schema 文档（无 TranslationText 字段）直接落库后读取。
+        var key = CacheKey.Compute("T", "A", 100);
+        using (var raw = new LiteDatabase(new ConnectionString { Filename = _dbPath }))
+        {
+            raw.GetCollection(LiteDbLyricsCache.LyricsCollection).Insert(new BsonDocument
+            {
+                ["_id"] = key,
+                ["RawText"] = "old-raw",
+                ["Source"] = (int)LyricsSourceKind.QQMusic,
+                ["UserBound"] = false,
+                ["OffsetSec"] = 0.0,
+                ["StoredAtTicks"] = DateTimeOffset.UtcNow.UtcTicks,
+            });
+        }
+
+        var cache = NewCache();
+        var hit = await cache.TryGetAsync(key);
+        Assert.NotNull(hit);
+        Assert.Equal("old-raw", hit!.RawText);
+        Assert.Null(hit.TranslationText); // 旧文档缺失字段 → null，不抛异常
     }
 }

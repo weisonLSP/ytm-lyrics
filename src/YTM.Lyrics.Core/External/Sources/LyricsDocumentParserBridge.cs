@@ -17,13 +17,21 @@ namespace YTM.Lyrics.Core.External.Sources;
 /// </summary>
 public sealed class LyricsDocumentParserBridge : ILyricsDocumentParser
 {
-    public LyricDocument Parse(string rawText, LyricsSourceKind source, LyricsRawFormat? formatHint)
+    public LyricDocument Parse(string rawText, LyricsSourceKind source, LyricsRawFormat? formatHint, string? translationText = null)
     {
         ArgumentNullException.ThrowIfNull(rawText);
         var rawType = formatHint is LyricsRawFormat format
             ? MapFormat(format)
             : DeriveFormatBySource(rawText, source);
-        return Parsing.LyricsDocumentParser.Parse(rawText, rawType, source);
+        var document = Parsing.LyricsDocumentParser.Parse(rawText, rawType, source);
+
+        // TASK-504：主歌词解析后合并翻译（按 source 分派；翻译为空/合并失败静默降级为无翻译）
+        if (!string.IsNullOrWhiteSpace(translationText))
+        {
+            document = Parsing.TranslationMerger.Merge(document, translationText, source);
+        }
+
+        return document;
     }
 
     private static LyricsRawTypes MapFormat(LyricsRawFormat format) => format switch

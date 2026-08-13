@@ -76,7 +76,7 @@ internal sealed class FakeSourceSearcher : ISourceSearcher
     {
         Source = source;
         _search = search ?? (() => new SourceSearchOutcome(true, new List<SourceSearchResult>(), null));
-        _fetch = fetch ?? (_ => new SourceLyricsResult(true, LyricsRawFormat.Lrc, "raw", null));
+        _fetch = fetch ?? (_ => new SourceLyricsResult(true, LyricsRawFormat.Lrc, "raw", null, null));
     }
 
     public LyricsSourceKind Source { get; }
@@ -123,11 +123,11 @@ internal sealed class StubLyricsDocumentParser : ILyricsDocumentParser
     /// <summary>原文命中谓词 → 返回 Lines=0 空文档（引擎防线测试用）。</summary>
     public Func<string, bool>? EmptyWhen { get; set; }
 
-    public List<(string RawText, LyricsSourceKind Source, LyricsRawFormat? FormatHint)> Calls { get; } = new();
+    public List<(string RawText, LyricsSourceKind Source, LyricsRawFormat? FormatHint, string? TranslationText)> Calls { get; } = new();
 
-    public LyricDocument Parse(string rawText, LyricsSourceKind source, LyricsRawFormat? formatHint)
+    public LyricDocument Parse(string rawText, LyricsSourceKind source, LyricsRawFormat? formatHint, string? translationText = null)
     {
-        Calls.Add((rawText, source, formatHint));
+        Calls.Add((rawText, source, formatHint, translationText));
         if (EmptyWhen?.Invoke(rawText) == true)
         {
             return new LyricDocument { Source = source, Lines = Array.Empty<LyricLine>() };

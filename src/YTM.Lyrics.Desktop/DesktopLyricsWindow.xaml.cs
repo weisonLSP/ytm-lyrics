@@ -50,9 +50,26 @@ public partial class DesktopLyricsWindow : Window
     // ---- TASK-302 渲染参数（UI_SPEC §2.1/§3.1 初值，M3 验收肉眼微调）----
     private const double BaseFontSize = 28;           // 基础字号：比主窗口 32 小一号（§3.1）
     private const double CurrentLineScale = 1.15;     // 当前行放大倍数（§2.1）
-    private const double LineGap = 8;                 // 双行模式行间距（紧凑排列）
-    private static readonly Brush BrushActive = new SolidColorBrush(Color.FromRgb(0xF2, 0xF2, 0xF8));
-    private static readonly Brush BrushDim = new SolidColorBrush(Color.FromRgb(0x8A, 0x8A, 0x98));
+    private const double TranslationFontScale = 0.625; // 翻译副行字号系数（对齐主窗口 TranslationFontSizeFor）
+    private const double TranslationFontMin = 12;     // 翻译副行字号下限（保可读）
+    private static readonly Brush BrushActive = new SolidColorBrush(Color.FromRgb(0x98, 0xD3, 0x3C)); // #98d33c 当前行（亮绿）
+    private static readonly Brush BrushDim = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));    // #FFFFFF 等待歌词/翻译（白）
+
+    /// <summary>歌词文字阴影（纯透明背景上提升可读性）。</summary>
+    private static readonly System.Windows.Media.Effects.DropShadowEffect LyricsShadow = new()
+    {
+        BlurRadius = 4,
+        ShadowDepth = 1,
+        Direction = 270,
+        Opacity = 0.85,
+        Color = Color.FromRgb(0x00, 0x00, 0x00),
+    };
+
+    /// <summary>悬停时的微弱暗色磨砂背景（#80000000，黑色 50% 半透明，极简、无边框）。</summary>
+    private static readonly Brush HoverBackground = new SolidColorBrush(Color.FromArgb(0x80, 0x00, 0x00, 0x00));
+
+    /// <summary>默认近乎透明背景（alpha=1：layered window 的 alpha=0 区域会鼠标穿透到桌面，无法拖动）。</summary>
+    private static readonly Brush IdleBackground = new SolidColorBrush(Color.FromArgb(0x01, 0x15, 0x17, 0x20));
 
     private IPlaybackStateMachine _machine;
     private ILyricsEngine _engine;
@@ -81,6 +98,14 @@ public partial class DesktopLyricsWindow : Window
         IReadOnlyList<(string Path, int DelayMs)> desktopShots)
     {
         InitializeComponent();
+
+        // 纯透明背景上文字加阴影提升可读性（当前行/下一行/翻译/占位统一）
+        CurrentLineText.Effect = LyricsShadow;
+        NextLineText.Effect = LyricsShadow;
+        CurrentTranslationText.Effect = LyricsShadow;
+        NextTranslationText.Effect = LyricsShadow;
+        PlaceholderText.Effect = LyricsShadow;
+
         _machine = machine;
         Settings = settings;
         _settingsManager = settingsManager;
@@ -102,7 +127,6 @@ public partial class DesktopLyricsWindow : Window
         ContextMenuOpening += OnContextMenuOpening;
         Loaded += OnLoaded;
         IsVisibleChanged += OnIsVisibleChanged;
-        LyricsCanvas.SizeChanged += OnCanvasSizeChanged;
 
         RefreshMenuChecks();
         Trace.WriteLine($"[DesktopLyricsWindow] ctor: size={Width:F0}x{Height:F0} pos=({Left:F0},{Top:F0}) " +
@@ -170,6 +194,18 @@ public partial class DesktopLyricsWindow : Window
 
     // ---------------- 拖动 / 缩放（PRD F7） ----------------
 
+    /// <summary>鼠标悬停：显示半透明深色底（可拖动/缩放的视觉边界与命中区域）。</summary>
+    private void OnShellMouseEnter(object sender, MouseEventArgs e)
+    {
+        Shell.Background = HoverBackground;
+    }
+
+    /// <summary>鼠标离开：恢复近乎透明（保持 alpha=1 接收鼠标，视觉透明）。</summary>
+    private void OnShellMouseLeave(object sender, MouseEventArgs e)
+    {
+        Shell.Background = IdleBackground;
+    }
+
     private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (Settings.desktop_click_through) return; // 穿透开启时本不该收到事件，防御
@@ -191,7 +227,8 @@ public partial class DesktopLyricsWindow : Window
     /// 设置即时生效入口（TASK-402）：整体替换设置引用，并即时应用桌面歌词全部设置项：
     /// 置顶 / 透明度 / 点击穿透 / 锁定 / 字号缩放 / 双行 / 无歌词行为。
     /// desktop_line_animation 为占位项（v1 换行硬切，UI_SPEC §3.4 实测校准），不实现动画。
-    /// 翻译行（show_translation）：桌面歌词只渲染主词行（LyricLine.Text），不渲染翻译副行，故无需处理。
+    /// TASK-505 翻译副行（show_translation）：开关变更经下方 _currentLine = -1 强制重渲染即时生效——
+    /// SetCurrentLine 重新取 Translation 并走 SetTranslation（关 → 一律 Collapsed，开 → 按行内容显隐）。
     /// </summary>
     public void ApplySettings(AppSettings settings)
     {
@@ -406,13 +443,22 @@ public partial class DesktopLyricsWindow : Window
             ? doc.Lines[idx + 1].Text
             : "";
 
+        // TASK-505 翻译副行：随主词行取 Translation；show_translation=false 时一律不取（不渲染）
+        var showTrans = Settings.show_translation;
+        var curTranslation = showTrans && idx >= 0 && idx < doc.Lines.Count
+            ? doc.Lines[idx].Translation
+            : null;
+        var nextTranslation = showTrans && showNext && idx + 1 >= 0 && idx + 1 < doc.Lines.Count
+            ? doc.Lines[idx + 1].Translation
+            : null;
+
         // v1 硬切（Lyricify 4 实测校准）：直接替换文本 + 样式，无过渡动画
         Trace.WriteLine($"[DesktopLyricsWindow] line {_currentLine} text='{curText}'");
-        SetTextsInstant(curText, nextText);
+        SetTextsInstant(curText, nextText, curTranslation, nextTranslation);
     }
 
     /// <summary>瞬切：直接替换文本 + 重布局（v1 硬切，Lyricify 4 实测校准）。</summary>
-    private void SetTextsInstant(string curText, string nextText)
+    private void SetTextsInstant(string curText, string nextText, string? curTranslation, string? nextTranslation)
     {
         CurrentLineText.Text = curText;
         ApplyActiveStyle(CurrentLineText);
@@ -420,8 +466,26 @@ public partial class DesktopLyricsWindow : Window
         ApplyDimStyle(NextLineText);
         NextLineText.Visibility = string.IsNullOrEmpty(nextText) ? Visibility.Collapsed : Visibility.Visible;
 
-        LyricsCanvas.UpdateLayout();
-        LayoutLines();
+        // TASK-505：翻译副行（空翻译/开关关闭 → Collapsed，不占位不破坏布局）
+        SetTranslation(CurrentTranslationText, curTranslation);
+        SetTranslation(NextTranslationText, nextTranslation);
+    }
+
+    /// <summary>
+    /// 翻译副行样式（TASK-505，对齐主窗口翻译行）：
+    /// 字号 = BaseFontSize * desktop_font_scale * 0.625（下限 12），暗色 #8A8A98，FontWeight=Normal。
+    /// 空/空白翻译保持 Collapsed（无空白占位）。
+    /// </summary>
+    private void SetTranslation(TextBlock tb, string? translation)
+    {
+        var has = !string.IsNullOrWhiteSpace(translation);
+        tb.Text = translation ?? "";
+        tb.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
+        if (!has) return;
+        tb.FontSize = Math.Max(TranslationFontMin, BaseFontSize * Settings.desktop_font_scale * TranslationFontScale);
+        tb.Foreground = BrushDim;
+        tb.FontWeight = FontWeights.Normal;
+        Trace.WriteLine($"[DesktopLyricsWindow] SetTranslation {tb.Name}: has={has} text='{tb.Text}' vis={tb.Visibility}");
     }
 
     /// <summary>当前行样式：1.15x 放大 + 纯白 #F2F2F8 + SemiBold（UI_SPEC §2.1 初值）。</summary>
@@ -440,41 +504,6 @@ public partial class DesktopLyricsWindow : Window
         tb.FontWeight = FontWeights.Normal;
     }
 
-    /// <summary>
-    /// 行定位：双行模式当前行在上 + 下一行在下紧凑排列、整块垂直居中；单行模式当前行垂直居中。
-    /// 换行动画只动 RenderTransform（相对偏移），Canvas.Top 是目标位置，两者互不干扰。
-    /// </summary>
-    private void LayoutLines()
-    {
-        var canvasH = LyricsCanvas.ActualHeight;
-        if (canvasH <= 0) return;
-
-        var currentH = Math.Max(CurrentLineText.ActualHeight, CurrentLineText.FontSize * 1.2);
-        var nextH = Math.Max(NextLineText.ActualHeight, NextLineText.FontSize * 1.2);
-
-        if (Settings.desktop_show_two_lines && !string.IsNullOrEmpty(NextLineText.Text))
-        {
-            var blockH = currentH + LineGap + nextH;
-            var top = (canvasH - blockH) / 2;
-            Canvas.SetTop(CurrentLineText, top);
-            Canvas.SetTop(NextLineText, top + currentH + LineGap);
-        }
-        else
-        {
-            Canvas.SetTop(CurrentLineText, (canvasH - currentH) / 2);
-        }
-    }
-
-    /// <summary>窗口尺寸变化 → 行宽同步（TextBlock 宽 = Canvas 宽 + Center 对齐实现水平居中）→ 重排。</summary>
-    private void OnCanvasSizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        foreach (var tb in new[] { CurrentLineText, NextLineText })
-        {
-            tb.Width = Math.Max(0, e.NewSize.Width);
-        }
-        LayoutLines();
-    }
-
     // ---------------- 显示状态（占位 ↔ 歌词层互斥，UI_SPEC §3.3） ----------------
 
     /// <summary>显示占位（品牌 / 加载中 / 暂无歌词 / 失败），隐藏歌词层并清空行内容。</summary>
@@ -484,16 +513,17 @@ public partial class DesktopLyricsWindow : Window
         _currentLine = -1;
         PlaceholderText.Text = text;
         PlaceholderText.Visibility = Visibility.Visible;
-        LyricsCanvas.Visibility = Visibility.Collapsed;
+        LyricsViewbox.Visibility = Visibility.Collapsed;
         CurrentLineText.Text = "";
         NextLineText.Text = "";
         NextLineText.Visibility = Visibility.Collapsed;
+        ClearTranslations();
     }
 
     private void ShowLyricsPanel()
     {
         PlaceholderText.Visibility = Visibility.Collapsed;
-        LyricsCanvas.Visibility = Visibility.Visible;
+        LyricsViewbox.Visibility = Visibility.Visible;
         // 首次有歌词自动显示：App 启动不 Show 桌面窗口（默认 main 视图），首个 TrackChanged
         // 加载成功后窗口尚在未显示态（IsLoaded=false）→ Show 一次；此后用户手动隐藏（热键/菜单）
         // 不弹回（IsLoaded=true 保持隐藏，尊重用户意图）
@@ -506,6 +536,16 @@ public partial class DesktopLyricsWindow : Window
         CurrentLineText.Text = "";
         NextLineText.Text = "";
         NextLineText.Visibility = Visibility.Collapsed;
+        ClearTranslations();
+    }
+
+    /// <summary>TASK-505：清空两个翻译副行（占位/清词同步，保持 Collapsed 不占位）。</summary>
+    private void ClearTranslations()
+    {
+        CurrentTranslationText.Text = "";
+        CurrentTranslationText.Visibility = Visibility.Collapsed;
+        NextTranslationText.Text = "";
+        NextTranslationText.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>无播放：品牌占位，不触发隐藏（保持 TASK-301 行为）。</summary>
@@ -648,6 +688,5 @@ public partial class DesktopLyricsWindow : Window
         ContextMenuOpening -= OnContextMenuOpening;
         Loaded -= OnLoaded;
         IsVisibleChanged -= OnIsVisibleChanged;
-        LyricsCanvas.SizeChanged -= OnCanvasSizeChanged;
     }
 }

@@ -33,5 +33,5 @@ internal sealed class ForensicSourceSearcher : ISourceSearcher
     }
 
     public Task<SourceLyricsResult> GetLyricsAsync(string sourceId, CancellationToken ct = default)
-        => Task.FromResult(new SourceLyricsResult(true, LyricsRawFormat.Qrc, _sampleQrc, null));
+        => Task.FromResult(new SourceLyricsResult(true, LyricsRawFormat.Qrc, _sampleQrc, null, null));
 }

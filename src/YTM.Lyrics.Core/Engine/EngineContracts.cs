@@ -72,8 +72,11 @@ public interface ILyricsDocumentParser
     /// 解析歌词原文。两条调用路径：
     /// - 新取词（适配器显式声明了 <see cref="LyricsRawFormat"/>）：formatHint 有值，按提示解析；
     /// - 缓存回放（CachedLyrics 未存格式）：formatHint 为 null，由实现按源推导/嗅探（坑 #1 吸收）。
+    /// <paramref name="translationText"/> 为翻译原文（TASK-504 承载约定：QQ/网易云为 LRC，
+    /// Musixmatch 为适配器序列化 JSON），非空白时实现层调 <see cref="External.Parsing.TranslationMerger"/>
+    /// 按源分派合并到每行 <see cref="Timeline.LyricLine.Translation"/>；合并失败静默降级为主歌词无翻译。
     /// </summary>
-    LyricDocument Parse(string rawText, LyricsSourceKind source, LyricsRawFormat? formatHint);
+    LyricDocument Parse(string rawText, LyricsSourceKind source, LyricsRawFormat? formatHint, string? translationText = null);
 }
 
 /// <summary>

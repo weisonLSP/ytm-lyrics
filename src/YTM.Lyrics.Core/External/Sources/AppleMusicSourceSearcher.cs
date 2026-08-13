@@ -48,10 +48,10 @@ public sealed class AppleMusicSourceSearcher : SourceSearcherBase
         var ttml = response?.Ttml;
         if (string.IsNullOrEmpty(ttml))
         {
-            return new SourceLyricsResult(false, LyricsRawFormat.Ttml, null, $"[{Source}] 歌词无返回");
+            return new SourceLyricsResult(false, LyricsRawFormat.Ttml, null, null, $"[{Source}] 歌词无返回");
         }
 
-        return new SourceLyricsResult(true, LyricsRawFormat.Ttml, ttml, null);
+        return new SourceLyricsResult(true, LyricsRawFormat.Ttml, ttml, null, null);
     }
 
     /// <summary>艺人名拆分（对齐 Helper AppleMusicSearchResult 语义：", " 与末位 " & "）。</summary>

@@ -194,13 +194,20 @@ public sealed class TitleCleaner : ITitleCleaner, IDisposable
             {
                 splitArtist = segments[idx];
                 segments.RemoveAt(idx);
+                title = string.Join(" - ", segments);
+            }
+            else if (IsRomanizedTitleTail(segments))
+            {
+                // 官方频道「歌名 - 罗马音/英文副标题」（如「トリセツ - Torisetsu」）：
+                // 首段 CJK 歌名 + 后续纯拉丁 → 首段为歌名，剥离后续转写段（艺人已在 RawArtist 频道名里）
+                title = segments[0];
             }
             else
             {
                 splitArtist = segments[0]; // 约定序：首段为艺人
                 segments.RemoveAt(0);
+                title = string.Join(" - ", segments);
             }
-            title = string.Join(" - ", segments);
         }
 
         title = StripAffixes(title, rules); // 重组后可能残留 " - YouTube Music" 等
@@ -323,6 +330,41 @@ public sealed class TitleCleaner : ITitleCleaner, IDisposable
                 return i;
         }
         return -1;
+    }
+
+    /// <summary>
+    /// 「歌名 - 罗马音/英文副标题」模式判断：首段含 CJK（假名/汉字），所有后续段均不含 CJK（纯拉丁）。
+    /// 典型 YTM 官方频道标题「トリセツ - Torisetsu」——首段是日文歌名，后续是罗马音转写；
+    /// 此格式不应把首段当艺人（艺人已在 RawArtist 频道名中），否则「トリセツ」被误当艺人、
+    /// 「Torisetsu」被误当歌名，导致按罗马音搜索搜不到日文歌名。
+    /// </summary>
+    private static bool IsRomanizedTitleTail(List<string> segments)
+    {
+        if (!ContainsCjk(segments[0]))
+        {
+            return false;
+        }
+
+        for (var i = 1; i < segments.Count; i++)
+        {
+            if (ContainsCjk(segments[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>是否含 CJK 字符：平假名/片假名 \u3040-\u30FF，或统一汉字 \u4E00-\u9FFF。</summary>
+    private static bool ContainsCjk(string s)
+    {
+        foreach (var c in s)
+        {
+            if (c is >= '\u3040' and <= '\u30FF') return true;
+            if (c is >= '\u4E00' and <= '\u9FFF') return true;
+        }
+        return false;
     }
 
     /// <summary>规范化：全角 ASCII（FF01–FF5E）→ 半角；nbsp/全角空格 → 空格；零宽字符剥离。</summary>

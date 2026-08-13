@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Text.Json;
+using Lyricify.Lyrics.Decrypter.Qrc;
 using Lyricify.Lyrics.Providers.Web.QQMusic;
 using YTM.Lyrics.Core.Cleaning;
 using YTM.Lyrics.Core.Engine;
@@ -133,13 +134,27 @@ public sealed class QqMusicSourceSearcher : SourceSearcherBase
     protected override async Task<SourceLyricsResult> GetLyricsCoreAsync(string sourceId, CancellationToken ct)
     {
         var response = await _api.GetLyricsAsync(sourceId).ConfigureAwait(false);
+        return MapLyricsResponse(response, Source);
+    }
+
+    /// <summary>
+    /// 解密后响应 → 歌词结果（internal 供单测 mock 验证；TASK-504 取 Trans 填入 TranslationText）。
+    /// </summary>
+    internal static SourceLyricsResult MapLyricsResponse(QqLyricsResponse? response, LyricsSourceKind source)
+    {
         if (response is null || string.IsNullOrWhiteSpace(response.Lyrics))
         {
-            return new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, $"[{Source}] 歌词为空或接口无返回");
+            return new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, null, $"[{source}] 歌词为空或接口无返回");
         }
 
         var text = response.Lyrics;
-        return new SourceLyricsResult(true, SniffQqFormat(text), text, null);
+
+        // TASK-504 翻译承载（2026-08-13 直连真实源取证，Lemon id=213086592）：
+        // QqLyricsResponse.Trans 为**带时间戳的 LRC**（含 [ti:]/[ar:]/[offset:]/[kana:] 元数据行 +
+        // [mm:ss.xx]译文 行，实测 63 行），非纯文本。Api.GetLyricsAsync 已把 ts 字段解密为明文（
+        // Decrypter.Qrc.Decrypter.DecryptLyrics），无需再 Decode → Parsing 层按 LRC 时间戳对齐合并。
+        var translation = string.IsNullOrWhiteSpace(response.Trans) ? null : response.Trans;
+        return new SourceLyricsResult(true, SniffQqFormat(text), text, translation, null);
     }
 
     /// <summary>

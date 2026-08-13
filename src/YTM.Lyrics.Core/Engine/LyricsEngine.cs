@@ -85,7 +85,7 @@ public sealed class LyricsEngine : ILyricsEngine
         if (cached is not null)
         {
             Trace.WriteLine($"[Engine] cache hit: key={cacheKey} source={cached.Source} userBound={cached.UserBound} rawLen={cached.RawText.Length}");
-            var document = _parser.Parse(cached.RawText, cached.Source, formatHint: null); // 缓存未存格式 → 解析缝按源推导/嗅探
+            var document = _parser.Parse(cached.RawText, cached.Source, formatHint: null, cached.TranslationText); // 缓存未存格式 → 解析缝按源推导/嗅探；翻译随缓存恢复（TASK-504）
             if (document.Lines.Count == 0)
             {
                 Trace.WriteLine($"[Engine] cache hit but parsed empty document, treated as miss: key={cacheKey} source={cached.Source} rawLen={cached.RawText.Length}");
@@ -269,7 +269,7 @@ public sealed class LyricsEngine : ILyricsEngine
         }
         catch (Exception ex)
         {
-            lyrics = new SourceLyricsResult(false, LyricsRawFormat.Unknown, null,
+            lyrics = new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, null,
                 $"[{selected.Source}] {ex.GetType().Name}: {ex.Message}");
         }
 
@@ -282,7 +282,7 @@ public sealed class LyricsEngine : ILyricsEngine
         Trace.WriteLine($"[Engine] bind fetch ok: source={selected.Source} format={lyrics.Format} rawLen={lyrics.RawText.Length}");
 
         // TASK-205F 防线同款：解析空文档的原文不落绑定缓存（否则重播回放空文档，绑定形同虚设）
-        var document = _parser.Parse(lyrics.RawText, selected.Source, lyrics.Format);
+        var document = _parser.Parse(lyrics.RawText, selected.Source, lyrics.Format, lyrics.TranslationText);
         if (document.Lines.Count == 0)
         {
             Trace.WriteLine($"[Engine] bind parsed empty document, failed: source={selected.Source} " +
@@ -294,6 +294,7 @@ public sealed class LyricsEngine : ILyricsEngine
         await _cache.BindUserChoiceAsync(cacheKey, new CachedLyrics(
             cacheKey,
             lyrics.RawText,
+            lyrics.TranslationText,
             selected.Source,
             UserBound: true,
             OffsetSec: 0,
@@ -371,7 +372,7 @@ public sealed class LyricsEngine : ILyricsEngine
         }
         catch (Exception ex)
         {
-            lyrics = new SourceLyricsResult(false, LyricsRawFormat.Unknown, null,
+            lyrics = new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, null,
                 $"[{candidate.Source}] {ex.GetType().Name}: {ex.Message}");
         }
 
@@ -386,7 +387,7 @@ public sealed class LyricsEngine : ILyricsEngine
         // TASK-205F 防线（真机根因 4）：候选原文经解析缝产出 Lines==0 的空文档时，
         // 该候选按失败处理——不写缓存（否则缓存命中回放又得空文档，永久占用该键）、记录日志并返回 null，
         // 由调用方顺延下一候选/下一源；全部候选解析为空 → 全灭 → 调用方写负缓存（PRD S3）。
-        var document = _parser.Parse(lyrics.RawText, candidate.Source, lyrics.Format);
+        var document = _parser.Parse(lyrics.RawText, candidate.Source, lyrics.Format, lyrics.TranslationText);
         if (document.Lines.Count == 0)
         {
             Trace.WriteLine($"[Engine] parsed empty document, candidate failed: source={candidate.Source} " +
@@ -398,6 +399,7 @@ public sealed class LyricsEngine : ILyricsEngine
         await _cache.StoreAsync(new CachedLyrics(
             cacheKey,
             lyrics.RawText,
+            lyrics.TranslationText,
             candidate.Source,
             UserBound: false,
             OffsetSec: 0,

@@ -56,7 +56,7 @@ public abstract class SourceSearcherBase : ISourceSearcher
         }
         catch (Exception ex)
         {
-            return new SourceLyricsResult(false, LyricsRawFormat.Unknown, null,
+            return new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, null,
                 $"[{Source}] 取词失败: {DescribeHttpError(ex, Source)}");
         }
         finally

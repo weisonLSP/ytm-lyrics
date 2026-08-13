@@ -121,4 +121,62 @@ public class LrcLyricsConverterTests
     {
         Assert.Equal(Source, Convert("[00:01.00]词").Source);
     }
+
+    // ---- TASK-504 反馈 ⑤：credits 元数据行过滤 ----
+
+    [Theory]
+    [InlineData("[00:00.00]作词:方文山", true)]
+    [InlineData("[00:00.00]作词：方文山", true)]
+    [InlineData("[00:00.00]作曲:周杰伦", true)]
+    [InlineData("[00:00.00]编曲:林迈可", true)]
+    [InlineData("[00:00.00]制作人:周杰伦", true)]
+    [InlineData("[00:00.00]混音:某某", true)]
+    [InlineData("[00:00.00]作词", true)] // 无冒号无内容
+    [InlineData("[00:00.00]作词 : 方文山", true)] // 取证格式：关键词与冒号间有空格（网易云真实数据）
+    [InlineData("[00:00.00]作词 :方文山", true)]
+    [InlineData("[00:00.00]作词: 方文山", true)]
+    [InlineData("[00:00.00]夜曲 - 周杰伦", false)] // 非 credits 行：不得误杀
+    [InlineData("[00:00.00]一群嗜血的蚂蚁", false)]
+    [InlineData("[00:00.00]歌词里有作词两个字", false)] // 不在行首：不得误杀
+    public void Credits行_带时间戳_按形态过滤(string lrc, bool shouldFilter)
+    {
+        var doc = Convert(lrc);
+        Assert.Equal(shouldFilter, doc.Lines.Count == 0);
+    }
+
+    [Fact]
+    public void Credits行_无时间戳_不产出歌词行()
+    {
+        // 无时间戳纯文本行 LrcParser 本就不产出；带时间戳 credits 行由过滤兜底（上一用例覆盖）
+        var doc = Convert("作词 : Montagem\r\n作曲 : Sazablue\r\n编曲 : 夏蔓蔓");
+        Assert.Empty(doc.Lines);
+    }
+
+    [Fact]
+    public void 过滤后全空_返回空文档()
+    {
+        // 真实取证形态（Merry Christmas Mr. Lawrence，网易云无版权歌）：只有 credits 行 + 无正文
+        const string lrc =
+            "[00:00.00] 编曲 : 坂本龍一\r\n" +
+            "[00:01.00] 制作人 : 坂本龍一/Katsunori Oshimo/Shinichi Tanaka\r\n" +
+            "[00:02.00] 作曲 : 坂本龍一\r\n";
+
+        Assert.Empty(Convert(lrc).Lines);
+    }
+
+    [Fact]
+    public void credits与正文混排_过滤credits_保留正文()
+    {
+        // 真实取证形态（夜曲）：3 行 credits（同时间戳）+ 正文行
+        const string lrc =
+            "[00:00.000] 作词 : 方文山\r\n" +
+            "[00:00.000] 作曲 : 周杰伦\r\n" +
+            "[00:00.000] 编曲 : 林迈可\r\n" +
+            "[00:24.960]一群嗜血的蚂蚁 被腐肉所吸引\r\n";
+
+        var doc = Convert(lrc);
+
+        var line = Assert.Single(doc.Lines);
+        Assert.Equal("一群嗜血的蚂蚁 被腐肉所吸引", line.Text);
+    }
 }

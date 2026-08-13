@@ -184,6 +184,7 @@ public sealed class LiteDbLyricsCache : ILyricsCache, IDisposable
     {
         Id = key,
         RawText = entry.RawText,
+        TranslationText = entry.TranslationText,
         Source = (int)entry.Source,
         UserBound = userBound,
         OffsetSec = entry.OffsetSec,
@@ -193,6 +194,7 @@ public sealed class LiteDbLyricsCache : ILyricsCache, IDisposable
     private static CachedLyrics ToEntry(LyricsDoc doc) => new(
         doc.Id,
         doc.RawText,
+        doc.TranslationText,
         (LyricsSourceKind)doc.Source,
         doc.UserBound,
         doc.OffsetSec,
@@ -204,6 +206,9 @@ public sealed class LiteDbLyricsCache : ILyricsCache, IDisposable
         public string Id { get; set; } = "";
 
         public string RawText { get; set; } = "";
+
+        /// <summary>TASK-504：翻译原文，随缓存持久化；LiteDB 对旧文档缺失字段自动返回 null，无需迁移。</summary>
+        public string? TranslationText { get; set; }
 
         public int Source { get; set; }
 

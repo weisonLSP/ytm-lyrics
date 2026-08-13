@@ -13,12 +13,33 @@
         Opacity="{Binding Settings.desktop_opacity, Mode=TwoWay}"
         MouseLeftButtonDown="OnMouseLeftButtonDown">
 
+    <!-- 透明缩放手柄样式：覆盖 Thumb 默认模板（Aero2 主题下默认有白色边框/方块视觉），
+         改为完全透明无感手柄，仅保留命中区域与 DragDelta 缩放功能。 -->
+    <Window.Resources>
+        <Style x:Key="InvisibleResizeThumb" TargetType="Thumb">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <!-- TASK-301 窗口壳：透明无边框（窗口本体），可见外壳为暗色圆角面板。
          位置/尺寸/置顶/穿透在 code-behind 按 settings 应用。 -->
     <Grid>
-        <!-- 可见外壳：歌词渲染层 + 占位层（互斥切换）+ 右键菜单（逃生口，UI_SPEC §3.2/§5.2） -->
-        <Border x:Name="Shell" CornerRadius="10" Background="#D9151720"
-                BorderBrush="#553C3F55" BorderThickness="1" Padding="16,10">
+        <!-- 外壳：默认近乎透明（alpha=1 保证接收鼠标）；悬停时显示半透明深色底，离开恢复透明。
+             无圆角、无边框，消除浅色桌面上的边缘描边。 -->
+        <Border x:Name="Shell" Background="#01151720"
+                BorderThickness="0" Padding="16,10"
+                MouseEnter="OnShellMouseEnter" MouseLeave="OnShellMouseLeave">
             <Border.ContextMenu>
                 <ContextMenu>
                     <MenuItem x:Name="MiClickThrough" Header="点击穿透" IsCheckable="True" Click="OnToggleClickThrough" />
@@ -38,19 +59,22 @@
                            FontSize="26" Foreground="#EDEDF2"
                            TextTrimming="CharacterEllipsis" />
 
-                <!-- 歌词渲染层（TASK-302）：Canvas 精确控制行 Y 位置（换行动画动画 TranslateTransform.Y），
-                     ClipToBounds 防动画溢出。Z 序：下一行(底) → 旧行淡出(中) → 当前行(顶)。
-                     行宽 = Canvas 宽 + TextAlignment=Center 实现水平居中（Canvas 内 HorizontalAlignment 无效）。
-                     NextLineText Opacity=0.55：渐隐是静态样式（UI_SPEC §2.1 初值，M3 微调），不做动画。 -->
-                <!-- 歌词渲染层（TASK-302）：Canvas 精确控制行 Y 位置，ClipToBounds 防溢出。
-                     Z 序：下一行(底) → 当前行(顶)。行宽 = Canvas 宽 + TextAlignment=Center。
-                     换行动画 v1 为硬切（Lyricify 4 实测校准），无过渡动画。 -->
-                <Canvas x:Name="LyricsCanvas" ClipToBounds="True" Visibility="Collapsed">
-                    <TextBlock x:Name="NextLineText" TextAlignment="Center"
-                               TextWrapping="NoWrap" Opacity="0.55" />
-                    <TextBlock x:Name="CurrentLineText" TextAlignment="Center"
-                               TextWrapping="NoWrap" />
-                </Canvas>
+                <!-- 歌词渲染层：Viewbox 等比缩放（Stretch=Uniform 绝不截断），内层固定设计尺寸 Grid
+                     + StackPanel 垂直居中。行序：当前原词 → 当前译词 → 下一句原词 → 下一句译词。
+                     未唱句白色预载，当前句绿色高亮（颜色切换，非文本突现）。 -->
+                <Viewbox x:Name="LyricsViewbox" Stretch="Uniform" Visibility="Collapsed">
+                    <Grid Width="600" Height="140">
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="CurrentLineText" TextAlignment="Center" TextWrapping="NoWrap" />
+                            <TextBlock x:Name="CurrentTranslationText" TextAlignment="Center" TextWrapping="Wrap"
+                                       Visibility="Collapsed" Margin="0,4,0,0" />
+                            <TextBlock x:Name="NextLineText" TextAlignment="Center" TextWrapping="NoWrap"
+                                       Margin="0,12,0,0" />
+                            <TextBlock x:Name="NextTranslationText" TextAlignment="Center" TextWrapping="Wrap"
+                                       Visibility="Collapsed" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </Viewbox>
             </Grid>
         </Border>
 
@@ -68,14 +92,14 @@
                 <RowDefinition Height="8" />
             </Grid.RowDefinitions>
 
-            <Thumb x:Name="ResizeTopLeft" Grid.Row="0" Grid.Column="0" Background="Transparent" Cursor="SizeNWSE" DragDelta="OnResizeDrag" />
-            <Thumb x:Name="ResizeTop" Grid.Row="0" Grid.Column="1" Background="Transparent" Cursor="SizeNS" DragDelta="OnResizeDrag" />
-            <Thumb x:Name="ResizeTopRight" Grid.Row="0" Grid.Column="2" Background="Transparent" Cursor="SizeNESW" DragDelta="OnResizeDrag" />
-            <Thumb x:Name="ResizeLeft" Grid.Row="1" Grid.Column="0" Background="Transparent" Cursor="SizeWE" DragDelta="OnResizeDrag" />
-            <Thumb x:Name="ResizeRight" Grid.Row="1" Grid.Column="2" Background="Transparent" Cursor="SizeWE" DragDelta="OnResizeDrag" />
-            <Thumb x:Name="ResizeBottomLeft" Grid.Row="2" Grid.Column="0" Background="Transparent" Cursor="SizeNESW" DragDelta="OnResizeDrag" />
-            <Thumb x:Name="ResizeBottom" Grid.Row="2" Grid.Column="1" Background="Transparent" Cursor="SizeNS" DragDelta="OnResizeDrag" />
-            <Thumb x:Name="ResizeBottomRight" Grid.Row="2" Grid.Column="2" Background="Transparent" Cursor="SizeNWSE" DragDelta="OnResizeDrag" />
+            <Thumb x:Name="ResizeTopLeft" Grid.Row="0" Grid.Column="0" Style="{StaticResource InvisibleResizeThumb}" Cursor="SizeNWSE" DragDelta="OnResizeDrag" />
+            <Thumb x:Name="ResizeTop" Grid.Row="0" Grid.Column="1" Style="{StaticResource InvisibleResizeThumb}" Cursor="SizeNS" DragDelta="OnResizeDrag" />
+            <Thumb x:Name="ResizeTopRight" Grid.Row="0" Grid.Column="2" Style="{StaticResource InvisibleResizeThumb}" Cursor="SizeNESW" DragDelta="OnResizeDrag" />
+            <Thumb x:Name="ResizeLeft" Grid.Row="1" Grid.Column="0" Style="{StaticResource InvisibleResizeThumb}" Cursor="SizeWE" DragDelta="OnResizeDrag" />
+            <Thumb x:Name="ResizeRight" Grid.Row="1" Grid.Column="2" Style="{StaticResource InvisibleResizeThumb}" Cursor="SizeWE" DragDelta="OnResizeDrag" />
+            <Thumb x:Name="ResizeBottomLeft" Grid.Row="2" Grid.Column="0" Style="{StaticResource InvisibleResizeThumb}" Cursor="SizeNESW" DragDelta="OnResizeDrag" />
+            <Thumb x:Name="ResizeBottom" Grid.Row="2" Grid.Column="1" Style="{StaticResource InvisibleResizeThumb}" Cursor="SizeNS" DragDelta="OnResizeDrag" />
+            <Thumb x:Name="ResizeBottomRight" Grid.Row="2" Grid.Column="2" Style="{StaticResource InvisibleResizeThumb}" Cursor="SizeNWSE" DragDelta="OnResizeDrag" />
         </Grid>
     </Grid>
 </Window>

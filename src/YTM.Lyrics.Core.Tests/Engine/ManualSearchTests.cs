@@ -96,7 +96,7 @@ public class ManualSearchTests
         var a = new FakeSourceSearcher(
             LyricsSourceKind.QQMusic,
             search: () => EngineTestFactory.Ok(),
-            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Qrc, "bound-raw", null));
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Qrc, "bound-raw", null, null));
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)));
 
         var selected = new SourceSearchResult(LyricsSourceKind.QQMusic, "qq-id", "Song", new[] { "Artist" }, null, 240);
@@ -129,7 +129,7 @@ public class ManualSearchTests
         var a = new FakeSourceSearcher(
             LyricsSourceKind.QQMusic,
             search: () => EngineTestFactory.Ok(),
-            fetch: _ => new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, "[QQMusic] 取词失败"));
+            fetch: _ => new SourceLyricsResult(false, LyricsRawFormat.Unknown, null, null, "[QQMusic] 取词失败"));
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)));
 
         var selected = new SourceSearchResult(LyricsSourceKind.QQMusic, "qq-id", "Song", new[] { "Artist" }, null, 240);
@@ -149,7 +149,7 @@ public class ManualSearchTests
         var a = new FakeSourceSearcher(
             LyricsSourceKind.QQMusic,
             search: () => EngineTestFactory.Ok(),
-            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Krc, "krc-empty", null));
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Krc, "krc-empty", null, null));
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)), parser: parser);
 
         var selected = new SourceSearchResult(LyricsSourceKind.QQMusic, "qq-id", "Song", new[] { "Artist" }, null, 240);
@@ -183,7 +183,7 @@ public class ManualSearchTests
         var a = new FakeSourceSearcher(
             LyricsSourceKind.QQMusic,
             search: () => EngineTestFactory.Ok(),
-            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Qrc, "bound-raw", null));
+            fetch: _ => new SourceLyricsResult(true, LyricsRawFormat.Qrc, "bound-raw", null, null));
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)));
 
         var selected = new SourceSearchResult(LyricsSourceKind.QQMusic, "qq-id", "Song", new[] { "Artist" }, null, 240);
@@ -191,7 +191,7 @@ public class ManualSearchTests
 
         // 模拟绑定后另一条自动搜索链路试图写同键（如未来自动结果晚到）：不得覆盖
         await cache.StoreAsync(new CachedLyrics(
-            CacheKey.Compute(Track(), Dur), "auto-later", LyricsSourceKind.Netease, UserBound: false, 0, DateTimeOffset.UtcNow));
+            CacheKey.Compute(Track(), Dur), "auto-later", null, LyricsSourceKind.Netease, UserBound: false, 0, DateTimeOffset.UtcNow));
 
         var hit = await cache.TryGetAsync(CacheKey.Compute(Track(), Dur));
         Assert.Equal("bound-raw", hit!.RawText);
