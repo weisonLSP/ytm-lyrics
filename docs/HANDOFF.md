@@ -1,7 +1,7 @@
 # HANDOFF：会话交接包（M4 完成态）
 
 > 本文件是会话换岗的唯一启动包。新窗口的 raphael 读这份文件 + 指向的文档即可恢复全部上下文。
-> 最后更新：2026-08-12（M1/M2/M3/M4 全部完成，M4 沙箱自测通过，待真机走查）
+> 最后更新：2026-08-13（backlog 已修 4 条 + 新增托盘退出修复；剩卡 2 翻译链路。详见「2026-08-13 增量」）
 
 ## 30 秒速览
 
@@ -10,6 +10,50 @@ YTM.Lyrics：YouTube Music 桌面歌词应用。C# .NET 8 + WPF 桌面端 + 油�
 **现状**：M1（播放链路）、M2（歌词引擎）、M3（桌面歌词窗口）、M4（F9 手动校正 + 设置页 + 稳定性 + 发布）全部完成。dist/YTM.Lyrics.exe 为 framework-dependent 单文件（ADR-12），含 M1–M4 全部改动（2026-08-12 23:35 发布）。单测基线 201 全绿。
 
 **下一步**：修 7 条真机反馈 backlog（见「已知问题与 Backlog」与文末「明天开工指引」），然后真机走查 M3+M4 全功能（清单见文末），连续使用一周验证「无重启需求」。之后按需排期 P1 项（F10 逐字卡拉 OK、F11 歌词偏移、F12 翻译开关已有）。
+
+## 2026-08-13 增量（当天交接必读）
+
+### ⚠️ 环境漂移（重要，勿重踩）
+
+HanaAgent 当前会话工作台是 `E:\Codex\OH-WorkSpace\ytm-lyrics`（注意 Codex，不是 Code），与 HANDOFF 原记的 `E:\Code\OH-WorkSpace\ytm-lyrics` 是两个目录：
+
+- **E:\Codex（当前工作台）**：M4 最新代码（含 SettingsWindow.xaml 等 M4 文件），但缺 external/、.git/、.nuget/、dist/。
+- **E:\Code（旧路径）**：有完整 external/（Helper 源码 5MB）+ .git + .nuget 离线缓存（packages + local-feed），但 src 停在 M3、git 也停在 M3。
+
+今日已做的非破坏性补全（把两边拼齐）：
+1. 复制 `E:\Code\...\external`（Helper 源码）→ E:\Codex 工作台
+2. 写了 `E:\Codex\...\nuget.config` 指向 `E:\Code\...\.nuget\local-feed`（离线源，勿删、勿切回 nuget.org）
+3. 构建/测试复用 `E:\Code\...\.nuget\packages`（NUGET_PACKAGES 环境变量）
+
+沙箱下 Schannel 出不了网（HANDOFF 坑位 #3），所以 build/test 必须带这两个环境变量：
+```powershell
+$env:DOTNET_CLI_HOME="E:\Codex\OH-WorkSpace\ytm-lyrics\.nuget\dotnet-home"
+$env:NUGET_PACKAGES="E:\Code\OH-WorkSpace\ytm-lyrics\.nuget\packages"
+```
+沙箱开放后可直接连 nuget.org，但沿用离线路更稳。基线 build 0 错误、test 201 全绿。
+
+**遗留风险**：E:\Codex 无 .git，今日改动（三张卡的代码）无版本控制保护。收工前需决策：把 E:\Codex 改动同步回 E:\Code 的 git 提交，或在 E:\Codex 初始化 git。
+
+### 今日完成（3 张 backlog 卡，均验收通过）
+
+| 卡 | 编号 | 内容 | 反馈项 |
+|---|---|---|---|
+| 托盘+退出修复 | TASK-501 | ShutdownMode=OnMainWindowClose + 原生 Shell_NotifyIcon 托盘（显示主窗口/切换桌面歌词/退出），点主窗口 X 真退出 | 用户今日新提（非原 7 条） |
+| UI 对比度+预填 | TASK-502 | 设置页 TabItem 深色模板 + ComboBox 深色主题 + 搜索框预填歌名 | ① ② ⑦ |
+| F9 常驻入口 | TASK-503 | 常驻「搜索歌词」按钮 + 「清除缓存重搜」动作（复用 UnbindAsync，无新 Core 接口） | ⑥ |
+
+### 新增/修改文件（今日）
+
+- 新增：`src/YTM.Lyrics.Desktop/TrayIcon.cs`（原生托盘，纯 P/Invoke，无 WinForms 依赖，白色音符 32x32 内嵌 ICO）
+- 修改：`App.xaml`（ShutdownMode）、`App.xaml.cs`（托盘接线+OnExit 移除）、`NativeMethods.cs`（托盘/菜单 P/Invoke）、`SettingsWindow.xaml`（TabItem+ComboBox 深色）、`MainWindow.xaml`+`.xaml.cs`（搜索歌词/清除缓存重搜按钮 + 预填 + ClearCacheAndReload 公共方法）
+- 新增：`nuget.config`（离线源，指向 E:\Code 的 local-feed）
+
+### 遗留（卡 2，留低谷跑）
+
+- ③ 桌面歌词不支持翻译行、④ 翻译字段接入残缺（QQ Trans / 网易云 Tlyric / Musixmatch GetTranslations）、⑤ 网易云无版权歌元数据行过滤——三件事打包卡 2，涉及 Core 层 SourceLyricsResult 契约变更，签发前想清翻译数据随两段式 Search→GetLyrics 的流转。
+- 真机走查：托盘图标白色在浅色任务栏可能偏淡（待用户确认）、托盘/热键交互、设置页下拉观感。
+
+---
 
 ## 新会话启动协议
 

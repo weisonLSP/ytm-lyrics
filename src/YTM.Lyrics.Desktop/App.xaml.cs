@@ -49,6 +49,7 @@ public partial class App : Application
     private HwndSource? _hotKeySource;   // 保持引用防 GC（热键消息泵挂在主窗口 HWND 上）
     private bool _hotKeyRegisteredW;
     private bool _hotKeyRegisteredR;
+    private TrayIcon? _trayIcon;        // TASK-501：系统托盘（Shell_NotifyIcon，消息泵复用 _hotKeySource）
 
     // ---- TASK-402：取证参数（--settings-shot / --settings-auto-edit）与引擎重建上下文 ----
     private IReadOnlyList<(string Path, int DelayMs)> _settingsShots = Array.Empty<(string, int)>();
@@ -207,6 +208,8 @@ public partial class App : Application
         }
 
         Trace.WriteLine("[App] OnExit: disposing probe provider / cleaner / cache");
+        // TASK-501：移除托盘图标（NIM_DELETE），防止进程退出后残留
+        _trayIcon?.Dispose(); // Dispose → Remove（NIM_DELETE + DestroyIcon + 日志）
         _provider?.Dispose();
         _provider = null;
         _cleaner?.Dispose();
@@ -355,6 +358,13 @@ public partial class App : Application
                 ? "[App] global hotkey Ctrl+Shift+R registered"
                 : $"[App] global hotkey Ctrl+Shift+R registration FAILED (lastErr={Marshal.GetLastWin32Error()})");
         }
+
+        // ---- TASK-501：系统托盘常驻入口（NIM_ADD；回调消息走同一 HwndSource 消息泵，不另起循环）----
+        _trayIcon = new TrayIcon();
+        _trayIcon.ShowMainWindowRequested += ShowMainWindowFromTray;
+        _trayIcon.ToggleDesktopRequested += ToggleDesktopWindow;
+        _trayIcon.ExitRequested += () => Shutdown();
+        _trayIcon.Register(_hotKeySource.Handle);
     }
 
     private IntPtr HotKeyWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -372,7 +382,22 @@ public partial class App : Application
                 handled = true;
             }
         }
+        else if (msg == TrayIcon.CallbackMessage && _trayIcon is not null)
+        {
+            // TASK-501：托盘回调（双击/右键菜单）分发到 TrayIcon，复用同一消息泵
+            handled = _trayIcon.HandleMessage(msg, wParam, lParam);
+        }
         return IntPtr.Zero;
+    }
+
+    /// <summary>TASK-501：托盘"显示主窗口"/双击 → 还原 + 激活主窗口（desktop 形态下从最小化恢复）。</summary>
+    private void ShowMainWindowFromTray()
+    {
+        if (_mainWindow is null) return;
+        _mainWindow.WindowState = WindowState.Normal;
+        _mainWindow.Show();
+        _mainWindow.Activate();
+        Trace.WriteLine($"[App] tray: show main window (state={_mainWindow.WindowState})");
     }
 
     /// <summary>Alt+Shift+W：桌面歌词窗口显示/隐藏切换（全局触发）。</summary>

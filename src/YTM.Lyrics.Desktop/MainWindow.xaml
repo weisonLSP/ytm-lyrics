@@ -59,10 +59,12 @@
             </ScrollViewer>
         </Border>
 
-        <!-- 底部来源与置信度（TDD §3.3：Low 明确提示"低置信结果"；F9 绑定结果旁提供解除绑定入口；TASK-402 设置按钮） -->
+        <!-- 底部来源与置信度（TDD §3.3：Low 明确提示"低置信结果"；F9 绑定结果旁提供解除绑定入口；
+             TASK-402 设置按钮；TASK-503 常驻"搜索歌词"入口） -->
         <Grid Grid.Row="7" Margin="0,10,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
@@ -72,7 +74,11 @@
             <Button x:Name="UnbindButton" Grid.Column="1" Content="解除绑定"
                     Visibility="Collapsed" Margin="12,0,0,0" Padding="10,4"
                     FontSize="12" Click="OnUnbindClicked" />
-            <Button x:Name="SettingsButton" Grid.Column="2" Content="⚙ 设置"
+            <!-- TASK-503：常驻手动搜索入口（Low/None 被动弹出之外，用户可随时主动打开面板；打开时自动预填歌名） -->
+            <Button x:Name="SearchLyricsButton" Grid.Column="2" Content="🔍 搜索歌词"
+                    Margin="12,0,0,0" Padding="10,4"
+                    FontSize="12" Click="OnSearchLyricsClicked" />
+            <Button x:Name="SettingsButton" Grid.Column="3" Content="⚙ 设置"
                     Margin="12,0,0,0" Padding="10,4"
                     FontSize="12" Click="OnOpenSettingsClicked" />
         </Grid>
@@ -98,9 +104,13 @@
                     <Button x:Name="BindButton" Content="使用此歌词" IsEnabled="False"
                             Padding="12,4" FontSize="13" Click="OnBindClicked"
                             DockPanel.Dock="Left" />
+                    <!-- TASK-503：清当前曲目缓存（正文/负缓存/用户绑定）后重新自动搜索 -->
                     <Button x:Name="CloseSearchButton" Content="取消"
                             Padding="12,4" FontSize="13" Click="OnCloseSearchClicked"
                             DockPanel.Dock="Right" />
+                    <Button x:Name="ClearCacheButton" Content="清除缓存重搜"
+                            Padding="12,4" FontSize="13" Click="OnClearCacheClicked"
+                            DockPanel.Dock="Right" Margin="0,0,8,0" />
                 </DockPanel>
             </StackPanel>
         </Border>

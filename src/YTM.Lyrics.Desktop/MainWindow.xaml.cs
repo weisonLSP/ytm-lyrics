@@ -509,7 +509,28 @@ public partial class MainWindow : Window
     private void ShowManualSearchPanel(bool show)
     {
         ManualSearchPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        if (!show)
+        if (show)
+        {
+            // TASK-502⑦：预填当前曲目清洗后歌名（仅搜索框为空时；用户已有输入不覆盖、不清空）
+            if (string.IsNullOrWhiteSpace(SearchKeywordBox.Text) && _machine.Current is { } cur)
+            {
+                try
+                {
+                    var cleanedTitle = _cleaner.Clean(cur.Track).Title; // 纯函数同步调用（与 OnBindClicked 同用法）
+                    if (!string.IsNullOrWhiteSpace(cleanedTitle))
+                    {
+                        SearchKeywordBox.Text = cleanedTitle;
+                        Trace.WriteLine($"[MainWindow] manual search prefill: '{cleanedTitle}'");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // 清洗失败不阻塞面板显示（保留空搜索框）
+                    Trace.WriteLine($"[MainWindow] manual search prefill failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+        }
+        else
         {
             ClearCandidates();
         }
@@ -680,6 +701,31 @@ public partial class MainWindow : Window
     /// <summary>解除绑定（F9）：删缓存条目后重新触发自动搜索（PRD F9「解除绑定回落到自动搜索」）。</summary>
     private async void OnUnbindClicked(object sender, RoutedEventArgs e)
     {
+        // "解除绑定"场景专属：隐藏解除绑定按钮（清除缓存重搜按钮不涉及此控件）
+        UnbindButton.Visibility = Visibility.Collapsed;
+        await ClearCacheAndReload();
+    }
+
+    /// <summary>TASK-503：「清除缓存重搜」入口（搜索面板内按钮）。清当前曲目缓存后重新自动搜索。</summary>
+    private async void OnClearCacheClicked(object sender, RoutedEventArgs e)
+    {
+        await ClearCacheAndReload();
+    }
+
+    /// <summary>TASK-503：常驻「搜索歌词」入口（Low/None 被动弹出之外的主动打开通道；预填逻辑见 ShowManualSearchPanel）。</summary>
+    private void OnSearchLyricsClicked(object sender, RoutedEventArgs e)
+    {
+        ShowManualSearchPanel(show: true);
+        Trace.WriteLine("[MainWindow] manual search panel opened via toolbar button");
+    }
+
+    /// <summary>
+    /// 清当前曲目缓存（正文/负缓存/用户绑定条目，UnbindAsync 语义不变）+ 重新自动搜索。
+    /// OnUnbindClicked（F9 解除绑定）与 OnClearCacheClicked（清除缓存重搜）共用，避免重复实现。
+    /// UnbindButton 的显隐属"解除绑定"场景，由调用方单独处理，不在此方法内。
+    /// </summary>
+    private async Task ClearCacheAndReload()
+    {
         var current = _machine.Current;
         if (current is null)
         {
@@ -690,18 +736,17 @@ public partial class MainWindow : Window
         {
             var cleaned = await Task.Run(() => _cleaner.Clean(current.Track)); // 与 GetLyricsAsync 同键
             var key = CacheKey.Compute(cleaned, current.Track.DurationSec);
-            Trace.WriteLine($"[MainWindow] unbind lyrics: key={key}");
+            Trace.WriteLine($"[MainWindow] clear cache & reload: key={key}");
             await _cache.UnbindAsync(key);
-            Trace.WriteLine($"[MainWindow] unbind done, re-trigger auto search: key={key}");
+            Trace.WriteLine($"[MainWindow] clear cache & reload done, re-trigger auto search: key={key}");
 
-            UnbindButton.Visibility = Visibility.Collapsed;
             HideManualSearchPanel();
-            StartLoad(current.Track); // 重新自动搜索（绑定已删，缓存/负缓存均不再命中）
+            StartLoad(current.Track); // 重新自动搜索（缓存/负缓存/绑定均已删除，不再命中）
         }
         catch (Exception ex)
         {
-            Trace.WriteLine($"[MainWindow] unbind failed: {ex.GetType().Name}: {ex.Message}");
-            ShowLyricsState("解除绑定失败", isWarn: true);
+            Trace.WriteLine($"[MainWindow] clear cache & reload failed: {ex.GetType().Name}: {ex.Message}");
+            ShowLyricsState("清除缓存重搜失败", isWarn: true);
         }
     }
 
