@@ -1,7 +1,7 @@
 # HANDOFF：会话交接包（M4 完成态）
 
 > 本文件是会话换岗的唯一启动包。新窗口的 raphael 读这份文件 + 指向的文档即可恢复全部上下文。
-> 最后更新：2026-08-14（真机反馈 ⑨⑩⑪ 三条待修清空：桌面歌词 duration 延迟搜索 + 手动绑定联动刷新 + 探针罗马音降级。详见「2026-08-14 增量」）
+> 最后更新：2026-08-14（真机反馈 ⑨⑩⑪ 三条待修清空且真机走查通过：桌面歌词 duration 延迟搜索 + 手动绑定联动刷新 + 探针罗马音降级。详见「2026-08-14 增量」）
 
 ## 30 秒速览
 
@@ -21,10 +21,11 @@ YTM.Lyrics：YouTube Music 桌面歌词应用。C# .NET 8 + WPF 桌面端 + 油�
 | ⑪ | 主窗口手动绑定/解除绑定/清缓存重搜成功 → `ManualLyricsChanged` 事件 → App 中转 → `DesktopLyricsWindow.ReloadCurrentTrack()` 重载当前曲目（两窗口保持一致） | `MainWindow.xaml.cs` + `App.xaml.cs` + `DesktopLyricsWindow.xaml.cs` |
 | ⑨ | 探针罗马音降级：`mediaSession.title` 纯拉丁（无 CJK）且 `videoDetails.title`/`document.title` 含 CJK 原文时，改用后者（artist 仍取 mediaSession，因 videoDetails.author 是频道名非艺人） | `probe/ytm-lyrics-probe.user.js`（@version 0.1.1） |
 
-### 需真机走查
+### 真机走查（2026-08-14 通过 ✅）
 
-- ⑨：验证真实 YTM 页面 `videoDetails.title` 是否含日文原文；若不含，`document.title` 兜底（含「日文 - 罗马音」原始串，由清洗器拆分）。
-- ⑩⑪：真机确认桌面歌词与主窗口翻译一致、手动绑定后桌面歌词即时刷新。
+- ⑨：日语歌标题已恢复日文原文（mediaSession 罗马音 → videoDetails/document.title 含 CJK 原文降级生效），artist 未串成频道名。
+- ⑩：桌面歌词与主窗口翻译一致，duration=0 首帧不再产生缓存键漂移。
+- ⑪：主窗口手动绑定/解除绑定后，桌面歌词即时刷新。
 
 ## 2026-08-13 增量（当天交接必读）
 
@@ -198,11 +199,11 @@ $env:NUGET_PACKAGES="E:\Code\OH-WorkSpace\ytm-lyrics\.nuget\packages"
 | ~~**网易云无版权歌返回「作词/作曲」元数据行**~~ | ✅ 已修（TASK-504：LrcLyricsConverter credits 行过滤，正则含空格容错） | 真机反馈 ⑤ |
 | 网易云「纯音乐，请欣赏」占位行（纯音乐歌无正文时返回该行，被当歌词） | 待排期（无歌词判定语义，与 credits 过滤分开处理） | 2026-08-13 新提 |
 | **特摄/翻唱曲绑定全失败**：搜索 "Eiyuu" 命中同名翻唱（EXIT TRANCE/aLf/Navi Kisaragi 等），但 QQ 歌词空、酷狗索引无候选、Apple 无返回、网易云仅 56 字节（疑似 credits 被 TASK-504 过滤为空文档）。原曲「英雄」(Ultraman Nexus OP) 在主流中文源歌词覆盖不足。手动搜索只有标题维（无艺人/时长），同名曲无法区分。 | 待排期（① 绑定失败提示区分「源无歌词」vs「异常」② 罗马音→日文搜索映射 P2 ③ 特摄曲数据源覆盖） | 真机反馈 ⑧ |
-| **探针元数据罗马音问题（日语歌）**：YTM `mediaSession.metadata.title` 对日语歌给罗马音（"Torisetsu"/"Otomedomoyo"），页面 document.title 才含日文（「トリセツ - Torisetsu」/「乙女どもよ。 - Otomedomoyo」）。探针优先 mediaSession → RawTitle 是罗马音，清洗器无法恢复日文。日志实证：StartLoad title='Torisetsu'/'Otomedomoyo'（非日文）。此前「トリセツ」清洗修复（罗马音识别）不解决此问题（RawTitle 本就是纯罗马音，无分隔符可拆）。 | ✅ 已修（2026-08-14：探针 mediaSession.title 纯拉丁且 videoDetails.title/document.title 含 CJK 时降级用后者，artist 仍取 mediaSession；待真机验证 videoDetails.title 是否含日文原文） | 真机反馈 ⑨ |
-| **桌面歌词翻译时有时无**：桌面歌词窗口缺 duration 延迟搜索（TrackSearchDeferrer 只在 MainWindow 用），探针首帧 duration=0 时桌面窗口立即用 duration=0 缓存键搜索，与主窗口（defer 后用正确 duration）缓存键不同，各自取词翻译不一致。表现为「歌词面板有翻译、桌面歌词框有时没有」。日志实证：Otomedomoyo 出现 key=de00...(duration=0) 与 key=15f2...(duration=252) 两个缓存键。 | ✅ 已修（2026-08-14：DesktopLyricsWindow 复用 Core/Playback/TrackSearchDeferrer，duration=0 延迟搜索至首个 duration>0 快照或 3s 超时） | 真机反馈 ⑩ |
-| **主窗口手动绑定后桌面歌词不刷新**：默认无歌词时手动绑定，桌面歌词仍停「暂无歌词」（需重新播放触发 TrackChanged 才更新）；有歌词（错误）时绑定能及时反映（机制待确认）。根因：OnBindClicked 绑定成功后仅刷新主窗口 ApplyLyricsResult，未通知桌面歌词窗口重新加载（DesktopLyricsWindow 只在 TrackChanged/ReplaceEngine/OnLoaded 加载）。 | ✅ 已修（2026-08-14：MainWindow ManualLyricsChanged 事件 → App 中转 → DesktopLyricsWindow.ReloadCurrentTrack 重载当前曲目） | 真机反馈 ⑪ |
-| **F9 手动搜索入口触发太窄 + 无常驻入口（“限时促销”）**：仅在 Low/None 时被动闪现，且切歌后 ApplyLyricsResult 重跑（新歌 High）面板即消失；无主动打开按钮，用户想用都找不到。且缓存命中后改源优先级不重搜（命中直接返回） | 待排期（F9 入口应常驻/主动可开，如「设置」旁加「搜索歌词」按钮，随时手动纠正；或加「清除缓存重搜」动作） | 真机反馈 ⑥ |
-| **手动搜索框未预填歌名**：面板出现时搜索框空白，需用户手敲歌名。应预填当前曲目清洗后歌名（或歌名+艺人），用户点「搜索」即用 | 待排期（UX：面板出现时自动填 SearchKeywordBox = 当前曲目歌名） | 真机反馈 ⑦ |
+| **探针元数据罗马音问题（日语歌）**：YTM `mediaSession.metadata.title` 对日语歌给罗马音（"Torisetsu"/"Otomedomoyo"），页面 document.title 才含日文（「トリセツ - Torisetsu」/「乙女どもよ。 - Otomedomoyo」）。探针优先 mediaSession → RawTitle 是罗马音，清洗器无法恢复日文。日志实证：StartLoad title='Torisetsu'/'Otomedomoyo'（非日文）。此前「トリセツ」清洗修复（罗马音识别）不解决此问题（RawTitle 本就是纯罗马音，无分隔符可拆）。 | ✅ 已修 + 真机走查通过（2026-08-14：探针 mediaSession.title 纯拉丁且 videoDetails.title/document.title 含 CJK 时降级用后者，artist 仍取 mediaSession） | 真机反馈 ⑨ |
+| **桌面歌词翻译时有时无**：桌面歌词窗口缺 duration 延迟搜索（TrackSearchDeferrer 只在 MainWindow 用），探针首帧 duration=0 时桌面窗口立即用 duration=0 缓存键搜索，与主窗口（defer 后用正确 duration）缓存键不同，各自取词翻译不一致。表现为「歌词面板有翻译、桌面歌词框有时没有」。日志实证：Otomedomoyo 出现 key=de00...(duration=0) 与 key=15f2...(duration=252) 两个缓存键。 | ✅ 已修 + 真机走查通过（2026-08-14：DesktopLyricsWindow 复用 Core/Playback/TrackSearchDeferrer，duration=0 延迟搜索至首个 duration>0 快照或 3s 超时） | 真机反馈 ⑩ |
+| **主窗口手动绑定后桌面歌词不刷新**：默认无歌词时手动绑定，桌面歌词仍停「暂无歌词」（需重新播放触发 TrackChanged 才更新）；有歌词（错误）时绑定能及时反映（机制待确认）。根因：OnBindClicked 绑定成功后仅刷新主窗口 ApplyLyricsResult，未通知桌面歌词窗口重新加载（DesktopLyricsWindow 只在 TrackChanged/ReplaceEngine/OnLoaded 加载）。 | ✅ 已修 + 真机走查通过（2026-08-14：MainWindow ManualLyricsChanged 事件 → App 中转 → DesktopLyricsWindow.ReloadCurrentTrack 重载当前曲目） | 真机反馈 ⑪ |
+| **F9 手动搜索入口触发太窄 + 无常驻入口（“限时促销”）**：仅在 Low/None 时被动闪现，且切歌后 ApplyLyricsResult 重跑（新歌 High）面板即消失；无主动打开按钮，用户想用都找不到。且缓存命中后改源优先级不重搜（命中直接返回） | ✅ 已修（TASK-503：常驻「搜索歌词」按钮 + 「清除缓存重搜」动作） | 真机反馈 ⑥ |
+| **手动搜索框未预填歌名**：面板出现时搜索框空白，需用户手敲歌名。应预填当前曲目清洗后歌名（或歌名+艺人），用户点「搜索」即用 | ✅ 已修（TASK-502：面板出现时预填当前曲目清洗后歌名） | 真机反馈 ⑦ |
 | YRC/TTML/MusixmatchJson 解析扩展点 | 仅 QRC/LRC/KRC | 按需 |
 | 逐字卡拉 OK 渲染 | P1 | M3 后 |
 | 播放控制（桌面端→探针反向注入） | P2 | 协议已预留 |

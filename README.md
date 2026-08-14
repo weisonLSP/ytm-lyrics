@@ -68,3 +68,4 @@ dotnet publish src/YTM.Lyrics.Desktop -c Release --self-contained false -p:Publi
 - **M1 ✅ M2 ✅**（2026-08-12 真机走查通过）：链路 + 引擎可用，五源搜索/缓存/翻译行/滚动显示正常
 - **M3 ✅**（2026-08-12 沙箱自测通过）：桌面歌词窗口 + 主窗口居中 + default_view，滚动参数已按 Lyricify 4 实测校准（见 docs/research/lyricify4-bench.md），待真机走查
 - **M4 ✅**（2026-08-12 沙箱自测通过，真机一周无重启待用户走查）：F9 手动校正 + 设置页 + 稳定性（RuleHotReloadTests 偶发失败修复、drift 校正诊断）+ 单文件发布。dist/YTM.Lyrics.exe 为含全部 M1–M4 改动的 framework-dependent 单文件产物（TASK-403）
+- **真机反馈 ⑨⑩⑪ ✅**（2026-08-14 真机走查通过）：桌面歌词 duration 延迟搜索（⑩）+ 手动绑定联动刷新（⑪）+ 探针罗马音降级（⑨）。dist/YTM.Lyrics.exe 已重新发布（含 ⑩⑪）；探针需 Tampermonkey 更新到 0.1.1（含 ⑨）
