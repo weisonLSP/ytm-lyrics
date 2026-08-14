@@ -89,6 +89,10 @@ public partial class DesktopLyricsWindow : Window
     private int _loadGen;                        // 代际序号：切歌竞态守卫（与 CTS 双保险）
     private CancellationTokenSource? _loadCts;
 
+    // ⑩：duration=0 延迟搜索（探针首帧时长无效时等有效时长/3s 超时再搜，与 MainWindow 同款决策器）
+    private readonly TrackSearchDeferrer _deferrer = new();
+    private DispatcherTimer? _deferTimer;
+
     public DesktopLyricsWindow(
         IPlaybackStateMachine machine,
         AppSettings settings,
@@ -270,6 +274,22 @@ public partial class DesktopLyricsWindow : Window
     }
 
     /// <summary>
+    /// ⑪：主窗口手动绑定/解除绑定（或清除缓存重搜）后，桌面歌词需重新加载当前曲目。
+    /// 两窗口独立订阅同一状态机，但手动绑定不触发 TrackChanged，故需 App 中转调用本方法。
+    /// </summary>
+    public void ReloadCurrentTrack()
+    {
+        if (_machine.Current is { } cur && !string.IsNullOrWhiteSpace(cur.Track.RawTitle))
+        {
+            StartLoad(cur.Track);
+        }
+        else
+        {
+            Trace.WriteLine("[DesktopLyricsWindow] ReloadCurrentTrack skipped: no current track");
+        }
+    }
+
+    /// <summary>
     /// 替换播放链路（TASK-402 RestartWebSocketListener：ws_port 变更后 machine 重建）：
     /// 退订旧 machine、绑定新 machine，清空歌词回到等待态（探针重连推帧后自然恢复）。
     /// 不调用 SetNoPlaybackState（避免把用户手动隐藏的窗口重新弹回）。
@@ -283,6 +303,9 @@ public partial class DesktopLyricsWindow : Window
         _currentLine = -1;
         _loadCts?.Cancel();
         _loadCts = null;
+        _deferTimer?.Stop();
+        _deferTimer = null;
+        _deferrer.Reset();
         ShowPlaceholder("等待探针数据…");
         Trace.WriteLine("[DesktopLyricsWindow] playback replaced (machine rebuilt)");
     }
@@ -337,6 +360,11 @@ public partial class DesktopLyricsWindow : Window
             return;
         }
 
+        // ⑩：新曲目到达先作废旧等待（决策器状态 + 轮询 timer），防止旧曲目延迟 timer 误触发加载
+        _deferTimer?.Stop();
+        _deferTimer = null;
+        _deferrer.Reset();
+
         // 切歌竞态：取消上一首仍在途的加载（新 TrackChanged 到达 → 上一首作废）
         _loadCts?.Cancel();
         _loadCts?.Dispose();
@@ -349,7 +377,51 @@ public partial class DesktopLyricsWindow : Window
             return;
         }
 
+        // ⑩：duration ≤ 0（探针首帧时长无效）→ 延迟搜索：等首个 duration>0 快照或 3s 超时兜底（缓存键不再漂移）
+        var decision = _deferrer.OnTrackChanged(current.Track, DateTimeOffset.UtcNow);
+        if (decision == TrackSearchDecision.Wait)
+        {
+            StartDeferredTimer();
+            return;
+        }
+
         StartLoad(current.Track);
+    }
+
+    /// <summary>
+    /// ⑩：延迟搜索轮询（250ms）：duration>0 快照到达或 3s 超时 → Ready → 用当前快照曲目启动加载。
+    /// 仅 UI 线程调用；Ready 后立即停 timer（单发）。与 MainWindow.StartDeferredTimer 同款。
+    /// </summary>
+    private void StartDeferredTimer()
+    {
+        _deferTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _deferTimer.Tick += (_, _) =>
+        {
+            var current = _machine.Current;
+            if (current is null)
+            {
+                _deferTimer!.Stop();
+                _deferTimer = null;
+                return;
+            }
+
+            var decision = _deferrer.OnSnapshot(current.Track, DateTimeOffset.UtcNow);
+            switch (decision)
+            {
+                case TrackSearchDecision.Wait:
+                    return; // 时长仍无效且未超时：继续等
+                case TrackSearchDecision.Ready:
+                    _deferTimer!.Stop();
+                    _deferTimer = null;
+                    StartLoad(current.Track); // 用最新（时长已有效）的快照曲目
+                    return;
+                default: // Immediate：等待态已被清除（如切歌竞态），停 timer 防泄漏
+                    _deferTimer!.Stop();
+                    _deferTimer = null;
+                    return;
+            }
+        };
+        _deferTimer.Start();
     }
 
     /// <summary>启动一次歌词加载（代际守卫 + CTS），由 OnTrackChanged 与 Loaded 补加载共用。</summary>
@@ -678,6 +750,8 @@ public partial class DesktopLyricsWindow : Window
     {
         SaveGeometry(); // 应用退出等路径的兜底（正常路径 OnClosing 已保存；重复保存幂等）
         _ticker.Stop();
+        _deferTimer?.Stop();
+        _deferTimer = null;
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         _loadCts = null;

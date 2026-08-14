@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YTM Lyrics Probe
 // @namespace    ytm-lyrics
-// @version      0.1.0
+// @version      0.1.1
 // @description  YTM 播放状态采集探针（PRD F1）：读 audio/video 媒体元素，报状态，别的什么都不做。
 // @match        https://music.youtube.com/*
 // @run-at       document-idle
@@ -66,17 +66,49 @@
     return null;
   }
 
+  // CJK 字符检测（日文假名/汉字/中文/韩文）：识别「罗马音 vs 原文」（真机反馈⑨）。
+  // YTM mediaSession.title 对日语歌可能给罗马音（纯拉丁），而 videoDetails.title / document.title 才含日文原文。
+  var CJK_RE = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
+  function hasCjk(s) {
+    return CJK_RE.test(s);
+  }
+
   function readMetadata(audio) {
-    // 首选 mediaSession：W3C 标准，真实 YTM 主播放器恒在（title/artist 直接用，不清洗）
     var ms = readMediaSession();
-    if (ms && ms.title) {
+    var vd = readVideoDetails();
+
+    var msTitle = ms && ms.title ? String(ms.title) : '';
+    var msArtist = ms && ms.artist ? String(ms.artist) : '';
+    var vdTitle = vd && vd.title ? String(vd.title) : '';
+    var docTitle = document.title || '';
+
+    // 真机反馈⑨：mediaSession.title 纯拉丁（无 CJK）且另有 CJK 原文时，降级用含原文的源。
+    // artist 仍取 mediaSession（videoDetails.author 是频道名非艺人，document.title 无艺人，都不能用）。
+    if (msTitle && !hasCjk(msTitle)) {
+      if (vdTitle && hasCjk(vdTitle)) {
+        return {
+          title: vdTitle,
+          artist: msArtist,
+          duration: audio && isFinite(audio.duration) ? audio.duration : 0
+        };
+      }
+      if (docTitle && hasCjk(docTitle)) {
+        return {
+          title: docTitle,
+          artist: msArtist,
+          duration: audio && isFinite(audio.duration) ? audio.duration : 0
+        };
+      }
+    }
+
+    // 首选 mediaSession：W3C 标准，真实 YTM 主播放器恒在（title/artist 直接用，不清洗）
+    if (msTitle) {
       return {
-        title: String(ms.title),
-        artist: ms.artist ? String(ms.artist) : '',
+        title: msTitle,
+        artist: msArtist,
         duration: audio && isFinite(audio.duration) ? audio.duration : 0 // mediaSession 不提供时长
       };
     }
-    var vd = readVideoDetails();
     if (vd && vd.title) {
       var dur = parseFloat(vd.lengthSeconds);
       return {
@@ -87,7 +119,7 @@
     }
     // 降级路径：document.title 原始值；频道名无可用源时留空，清洗交给桌面端 F3
     return {
-      title: document.title,
+      title: docTitle,
       artist: '',
       duration: audio && isFinite(audio.duration) ? audio.duration : 0
     };

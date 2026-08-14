@@ -25,7 +25,7 @@ YTM 页面 → 油猴探针（零类名依赖，只认 HTML5 媒体元素 + Medi
 # 沙箱/本机统一姿势（ADR-10/11）：
 $env:DOTNET_CLI_HOME="$PWD\.nuget\dotnet-home"
 dotnet msbuild YTM.Lyrics.sln -target:Restore,Build -property:MSBuildEnableWorkloadResolver=false -maxcpucount:1
-dotnet test src/YTM.Lyrics.Core.Tests/YTM.Lyrics.Core.Tests.csproj   # 全绿基线：201
+dotnet test src/YTM.Lyrics.Core.Tests/YTM.Lyrics.Core.Tests.csproj   # 全绿基线：260
 
 # 发布（framework-dependent 单文件，ADR-12）：
 dotnet publish src/YTM.Lyrics.Desktop -c Release --self-contained false -p:PublishSingleFile=true -p:MSBuildEnableWorkloadResolver=false -maxcpucount:1
@@ -38,7 +38,7 @@ dotnet publish src/YTM.Lyrics.Desktop -c Release --self-contained false -p:Publi
 - `probe/`：油猴探针（唯一浏览器内代码，红线：不依赖任何 YTM CSS 类名/DOM 层级）
 - `src/YTM.Lyrics.Core`：net8.0 类库，零 UI 依赖（Playback / Cleaning / Engine / Timeline / Cache / External）
 - `src/YTM.Lyrics.Desktop`：WPF，只做窗口/渲染，禁止业务编排
-- `src/YTM.Lyrics.Core.Tests`：xunit（201 用例基线）
+- `src/YTM.Lyrics.Core.Tests`：xunit（260 用例基线）
 - `external/Lyricify.Lyrics-Helper`：歌词供应链源码（不纳入主仓库版本控制）
 - `tools/`：e2e 取证与诊断工具（Node/Python/PowerShell 编排、样本、接口诊断脚本）
 

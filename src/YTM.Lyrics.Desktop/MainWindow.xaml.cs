@@ -61,6 +61,12 @@ public partial class MainWindow : Window
     private bool _providerLost;
     private string? _f9AutoKeyword; // TASK-401 取证：--f9-auto 关键词（OnLoaded 时启动自动序列）
 
+    /// <summary>
+    /// ⑪：主窗口手动绑定/解除绑定/清除缓存重搜成功后触发，App 订阅后中转刷新桌面歌词窗口。
+    /// 不含 TrackChanged 自动搜索（桌面歌词窗口自己订阅状态机，已同步，避免重复加载）。
+    /// </summary>
+    public event EventHandler? ManualLyricsChanged;
+
     // ---- 歌词状态（仅 UI 线程访问） ----
     private LyricDocument? _doc;
     private int _currentLine = -1;
@@ -689,6 +695,7 @@ public partial class MainWindow : Window
             }
 
             ApplyLyricsResult(result); // 内部联动：UserBound=true → 显示"解除绑定"、隐藏搜索面板
+            ManualLyricsChanged?.Invoke(this, EventArgs.Empty); // ⑪：手动绑定成功 → 通知桌面歌词窗口重载
             Trace.WriteLine($"[MainWindow] bind success: source={result.Source} userBound={result.UserBound}");
         }
         catch (Exception ex)
@@ -742,6 +749,7 @@ public partial class MainWindow : Window
 
             HideManualSearchPanel();
             StartLoad(current.Track); // 重新自动搜索（缓存/负缓存/绑定均已删除，不再命中）
+            ManualLyricsChanged?.Invoke(this, EventArgs.Empty); // ⑪：解除绑定/清缓存重搜 → 通知桌面歌词窗口重载
         }
         catch (Exception ex)
         {

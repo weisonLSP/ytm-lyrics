@@ -157,6 +157,9 @@ public partial class App : Application
         // TASK-302：传入 engine + cleaner 供歌词加载（TrackChanged → Clean → GetLyricsAsync）
         _desktopWindow = new DesktopLyricsWindow(_machine, _settings, _settingsManager, engine, _cleaner, desktopShots);
 
+        // ⑪：主窗口手动绑定/解除绑定 → 中转刷新桌面歌词窗口（两窗口独立，TrackChanged 不覆盖手动纠正场景）
+        window.ManualLyricsChanged += OnMainWindowManualLyricsChanged;
+
         // ---- TASK-301：全局热键 Alt+Shift+W（窗口显示/隐藏切换）----
         // RegisterHotKey 需要 HWND + 消息泵：主窗口 SourceInitialized 之后注册（任务卡要求）
         window.SourceInitialized += OnMainWindowSourceInitialized;
@@ -408,6 +411,10 @@ public partial class App : Application
         else _desktopWindow.Show();
         Trace.WriteLine($"[App] hotkey toggle desktop window: {(_desktopWindow.IsVisible ? "shown" : "hidden")}");
     }
+
+    /// <summary>⑪：主窗口手动绑定/解除绑定后，桌面歌词窗口重载当前曲目（两窗口保持一致）。</summary>
+    private void OnMainWindowManualLyricsChanged(object? sender, EventArgs e)
+        => _desktopWindow?.ReloadCurrentTrack();
 
     /// <summary>Ctrl+Shift+R（UI_SPEC §5.1）：桌面歌词窗口位置重置到屏幕居中，清除位置/尺寸持久化字段后保存。</summary>
     private void ResetDesktopWindowPosition()
