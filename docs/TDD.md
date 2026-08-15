@@ -2,11 +2,11 @@
 
 | 字段 | 内容 |
 |---|---|
-| 版本 | v0.5（骨架，类级细节待 TASK-001 调研回填） |
+| 版本 | v1.0（2026-08-16：待回填项全部关闭，新增 ADR-13） |
 | 作者 | k3（架构师） |
 | 阅读对象 | 执行 agent（kathrik）：本文件是编码时的最高约束，与 PRD 冲突时以 PRD 为准并立即上报 |
 
-> 标注 **[待 TASK-001]** 的章节表示依赖 Lyrics Helper 源码调研结果，执行者不得擅自假设，待调研摘要回填后再动工。
+> 契约的代码形态以 `src/YTM.Lyrics.Core/**` 各 Contracts 文件为准；本文件记录设计意图与约束。v0.5 之后的契约演进见 §3.7。
 
 ---
 
@@ -53,8 +53,9 @@ Lyricify.Lyrics.Helper   external/Lyricify-Lyrics-Helper 源码项目引用（ma
 | ADR-10 | 沙箱构建参数 | 构建/测试统一携带 `-property:MSBuildEnableWorkloadResolver=false -maxcpucount:1`（推荐经 `.nuget/` 响应文件）；**前置：`DOTNET_CLI_HOME` 指向工作区内可写目录（如 `.nuget/dotnet-home`）**（TASK-102 补录） | 本机 SDK 8.0.424 被裁剪缺 workload locator（MSB4276）；受限 token 阻断 MSBuild worker 节点 spawn（0 错误静默退出 1）；CLI 首启 sentinel 写入用户目录被拒。均为官方机制/环境变量重定向，仅沙箱内需要 | 冻结（TASK-101/102 实测） |
 | ADR-11 | NuGet 离线源 | `.nuget/local-feed/` + 仓库根 nuget.config（不提交）；Python/OpenSSL 拉包（`.nuget/fetch_packages.py`） | 受限 token 下 Schannel TLS 不可用（SEC_E_NO_CREDENTIALS），Python ssl 走 OpenSSL 可出网。正常环境删除 nuget.config 即恢复默认源。NU1603 近似匹配警告已接受（不影响产物） | 冻结（TASK-101 实测） |
 | ADR-12 | 发布形态 | **framework-dependent 单文件**（依赖本机 .NET 8 Desktop Runtime），不用 self-contained | self-contained 自解压 native dll 到 `%TEMP%`，本机用户名含单引号（`wei'son`）导致解压路径解析失败，WPF 启动 DllNotFoundException（2026-08-12 实测，事件日志实证）。沙箱验证通过但用户环境崩溃，验证环境差异警示。framework-dependent 单文件无自解压机制，绕开此坑 | 冻结 |
+| ADR-13 | 桌面编排下沉 Core（LyricsSession） | 抽共享会话层持有：播放订阅、TrackSearchDeferrer、搜索/绑定/解绑/重载、设置应用；两个窗口只订阅渲染。禁止引入 MVVM 框架与 DI 容器 | 两窗口各自编排已产生 ⑩⑪ 两次「行为漂移」bug（桌面窗口漏延迟搜索、手动绑定不联动）；MainWindow 929 行 / DesktopLyricsWindow 766 行 / App 680 行 code-behind 违反 §5「只做窗口/渲染」 | 已裁决，触发式执行：随 F11 歌词偏移任务卡落地，不提前重构（2026-08-16） |
 
-## 3. Core 模块契约（接口冻结，实现可变）
+## 3. Core 模块契约（设计意图冻结，代码形态以 Contracts 文件为准）
 
 ### 3.1 Playback
 
@@ -184,6 +185,16 @@ public static class CacheKey
 3. Helper 使用全局静态 HttpClient 且 Searcher 静默吞异常 → 防腐层对同一源的调用**串行化**（与节流策略一致），捕获所有异常并转换为带源标识的结果对象，禁止静默失败向上传播为“无结果”
 4. Helper 部分同步方法用 `.Result` 阻塞 → Core/Desktop 只允许调用 Async 版本，代码审查红线
 
+### 3.7 契约演进记录（v0.5 之后，以代码为准）
+
+| 时间 | 演进 | 位置 |
+|---|---|---|
+| M2 实战修复 | `TrackSearchDeferrer`：duration=0 首帧延迟搜索（250ms 轮询 + 3s 超时兜底），主窗口与桌面歌词窗口共用 | Playback/TrackSearchDeferrer.cs |
+| M4 | F9 手动校正：`SearchCandidatesAsync`/`BindLyricsAsync` + `ScoredCandidate`/`SourceCandidateGroup` | Engine/EngineContracts.cs |
+| M4 | F9 解绑：`ILyricsCache.UnbindAsync`（删正文+负缓存条目） | Cache/ILyricsCache.cs |
+| M4 | 清洗规则热加载：`TitleCleaner.LoadRules(path)`（volatile 快照 + lock 切换 watcher） | Cleaning/ |
+| 2026-08-13 | 翻译链路：QQ Trans / 网易云 Tlyric / Musixmatch GetTranslations 三源接入 + TranslationMerger（10ms 量化时间戳对齐）+ LrcLyricsConverter credits 行过滤 | External/ |
+
 ## 4. WebSocket 协议 v1（冻结）
 
 探针 → 桌面端（JSON 文本帧）：
@@ -205,6 +216,7 @@ public static class CacheKey
 - 允许：窗口管理（透明/置顶/穿透/拖动）、动画、设置绑定、把 Core 事件转成 ViewModel 通知
 - 禁止：任何 `using YTM.Lyrics.Core.Engine` 以外的业务编排；直接 `using` Helper 命名空间（红线）
 - ViewModel 层薄：一行歌词的显示状态（过去/当前/未来）由 Core 计算，Desktop 只读
+- **现状偏差（2026-08-16 记录）**：MainWindow.xaml.cs 929 行 / DesktopLyricsWindow.xaml.cs 766 行 / App.xaml.cs 680 行，两窗口各自实现会话编排（延迟搜索、绑定联动、设置分发），已产生 ⑩⑪ 两次「两窗口行为漂移」bug。整改按 ADR-13 执行，随 F11 歌词偏移任务卡落地，不提前重构。
 
 ## 6. 测试策略
 
@@ -218,12 +230,4 @@ public static class CacheKey
 
 ## 7. 待回填清单
 
-| 项 | 依赖 | 回填位置 | 状态 |
-|---|---|---|---|
-| Helper 引用方式（NuGet/源码） | TASK-001 | §1、ADR-4 | ✅ 已回填：源码引用 master |
-| 源优先级调整 + 汽水移出 | TASK-001 | ADR-9 | ✅ 已冻结 |
-| Helper 四个已知坑的吸收策略 | TASK-001 | §3.6 | ✅ 已冻结 |
-| ISourceSearcher 签名与五源适配器细节 | TASK-001 → TASK-203 | §3.6 | 按 api-map.md 定稿，k3 抽查 |
-| 打分分值表 | TASK-203 | §3.3 | 按 api-map.md 定稿，k3 抽查 |
-| 翻译行承载转换规则 | TASK-203 | §3.6 | api-map.md 已含 KRC `FullSyllableLineInfo(chineseTranslation)` 线索 |
-| UI 规格数值（字号/间距/动效） | TASK-002 | UI_SPEC.md（新建，kathrik 起草 k3 终审） | ✅ 已完成：docs/UI_SPEC.md v1.0，k3 终审修正两处冲突（端口/源优先级） |
+✅ v0.5 的 7 项待回填已全部关闭（2026-08-16）。历史明细见 git 历史或 docs/history/2026-08.md。

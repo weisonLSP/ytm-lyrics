@@ -85,6 +85,9 @@ tools/*.pid
 tools/t205f/kugou_krc_real.txt
 tools/t205f/*_stdout.txt
 
+# TASK-504 探针诊断过程输出（可重跑，不入库）
+tools/t504_probe/*.txt
+
 # 取证/诊断过程产物（截图、缓存库、测试设置，不入库；可重跑生成）
 .verify/
 tools/**/*.db

@@ -55,16 +55,21 @@ dotnet publish src/YTM.Lyrics.Desktop -c Release --self-contained false -p:Publi
 
 | 文档 | 内容 |
 |---|---|
-| **docs/HANDOFF.md** | 会话交接包（新窗口启动协议、坑位手册、backlog） |
+| **AGENTS.md** | 新会话自动加载：铁律 + 文档路由 + 当前方向 |
+| **docs/HANDOFF.md** | 会话交接包（只放当前真相 + 开口事项；卫生规则见 WORKFLOW §9） |
+| **BUGS.md** | 活 backlog（用户反馈，含建议处理顺序） |
 | docs/PRD.md | 产品需求（v1.0 已冻结） |
-| docs/TDD.md | 技术设计 + 12 条 ADR（架构最高约束） |
+| docs/TDD.md | 技术设计 + 13 条 ADR（架构最高约束） |
 | docs/UI_SPEC.md | UI 规格（M3 桌面歌词窗口的依据） |
-| docs/WORKFLOW.md | 协作流水线章程（含成本纪律与提权十律） |
+| docs/WORKFLOW.md | 协作流水线章程（成本纪律 / 提权十律 / 文档卫生） |
 | docs/DEVELOPMENT_PLAN.md | 里程碑与任务卡计划 |
-| docs/research/ | Helper API 速查表、UI 调研草稿 |
+| docs/history/ | 已完成的增量日志与走查清单（查考用，勿当现状读） |
+| docs/tasks/done/ | 已验收任务卡 |
+| docs/research/ | Helper API 速查表、调研报告（按需单篇读） |
 
 ## 状态
 
+- **v1.1 日用打磨期（2026-08-16 起）**：方向裁决——打 v1.0.0 tag 后按 BUGS.md 建议顺序烧零 backlog，F11 歌词偏移连同 LyricsSession 重构（TDD ADR-13）。文档已瘦身：AGENTS.md 自动加载，历史归档 docs/history/，已验收任务卡归 docs/tasks/done/
 - **M1 ✅ M2 ✅**（2026-08-12 真机走查通过）：链路 + 引擎可用，五源搜索/缓存/翻译行/滚动显示正常
 - **M3 ✅**（2026-08-12 沙箱自测通过）：桌面歌词窗口 + 主窗口居中 + default_view，滚动参数已按 Lyricify 4 实测校准（见 docs/research/lyricify4-bench.md），待真机走查
 - **M4 ✅**（2026-08-12 沙箱自测通过，真机一周无重启待用户走查）：F9 手动校正 + 设置页 + 稳定性（RuleHotReloadTests 偶发失败修复、drift 校正诊断）+ 单文件发布。dist/YTM.Lyrics.exe 为含全部 M1–M4 改动的 framework-dependent 单文件产物（TASK-403）
