@@ -96,6 +96,70 @@ public class CleaningTests
         Assert.Equal(new[] { "CHiCO with HoneyWorks" }, r.ArtistCandidates);
     }
 
+    // ---------- TASK-601：「」角括弧歌名抢救 ----------
+
+    [Fact]
+    public void 角括弧_BUGS案例_艺人括歌名()
+    {
+        // BUGS.md 第 1 条：「」内才是真歌名；(...) 注释（含『』作品名标注）整体剥离
+        var r = _cleaner.Clean(new TrackInfo(
+            "いきものがかり「さよならララ」 (オリジナルTVアニメ『さよならララ』OPテーマ) Music Video",
+            "いきものがかり - Topic", 100));
+        Assert.Equal("さよならララ", r.Title);
+        Assert.Equal(new[] { "いきものがかり" }, r.ArtistCandidates);
+    }
+
+    [Fact]
+    public void 角括弧_串首格式_歌名在前艺人在后()
+    {
+        var r = _cleaner.Clean(new TrackInfo("「夜に駆ける」 / YOASOBI", "YOASOBI - Topic", 100));
+        Assert.Equal("夜に駆ける", r.Title);
+        Assert.Equal(new[] { "YOASOBI" }, r.ArtistCandidates);
+    }
+
+    [Fact]
+    public void 角括弧_搬运频道_前缀仍作艺人候选()
+    {
+        // 频道名与标题前缀不同（搬运/合集频道）：Artist「Title」仍是优势解读，前缀追加为艺人候选
+        var r = _cleaner.Clean(new TrackInfo("米津玄師 「Lemon」 MV", "AnimeMusicChannel", 100));
+        Assert.Equal("Lemon", r.Title);
+        Assert.Equal(new[] { "AnimeMusicChannel", "米津玄師" }, r.ArtistCandidates);
+    }
+
+    [Fact]
+    public void 角括弧_无艺人元数据_前缀兜底为候选()
+    {
+        var r = _cleaner.Clean(new TrackInfo("Aimer「残響散歌」", "", 100));
+        Assert.Equal("残響散歌", r.Title);
+        Assert.Equal(new[] { "Aimer" }, r.ArtistCandidates);
+    }
+
+    [Fact]
+    public void 角括弧_串首无元数据_后缀兜底为候选()
+    {
+        var r = _cleaner.Clean(new TrackInfo("「夜に駆ける」 / YOASOBI", "", 100));
+        Assert.Equal("夜に駆ける", r.Title);
+        Assert.Equal(new[] { "YOASOBI" }, r.ArtistCandidates);
+    }
+
+    [Fact]
+    public void 角括弧_内容为噪声词_不抢救()
+    {
+        // 「」内是标注而非歌名：放弃抢救，保持既有行为（不变得更差）
+        var r = _cleaner.Clean(new TrackInfo("Some Song 「MV」", "Some Artist - Topic", 100));
+        Assert.Equal("Some Song 「MV」", r.Title);
+        Assert.Equal(new[] { "Some Artist" }, r.ArtistCandidates);
+    }
+
+    [Fact]
+    public void 角括弧_内容内嵌罗马音对_再走罗马音规则收敛()
+    {
+        // 「」内容本身含「歌名 - 罗马音」：抢救后由既有 IsRomanizedTitleTail 规则取首段
+        var r = _cleaner.Clean(new TrackInfo("「トリセツ - Torisetsu」", "西野カナ - Topic", 100));
+        Assert.Equal("トリセツ", r.Title);
+        Assert.Equal(new[] { "西野カナ" }, r.ArtistCandidates);
+    }
+
     [Fact]
     public void 分隔符拆分_艺人段匹配优先于罗马音启发式()
     {

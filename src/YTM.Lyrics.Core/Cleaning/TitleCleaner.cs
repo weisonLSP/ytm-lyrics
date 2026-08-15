@@ -13,9 +13,10 @@ namespace YTM.Lyrics.Core.Cleaning;
 ///   2. 剥装饰符号与 emoji
 ///   3. 剥括号对（含嵌套）：命中 feat./with 白名单的括号内容提取为艺人候选，其余整体剥离
 ///   4. 剥后缀/前缀噪声（重复直至稳定，最长优先 + 词首边界）
-///   5. 分隔符拆分推测 "艺人 - 歌名"（YTM 约定 Artist - Title）；若某段与清洗后 RawArtist 一致则以该段为艺人
+///   5. 「」角括弧歌名抢救（TASK-601）：首个「」对内容（非噪声）提升为歌名，对前文本（或串首格式的对后文本）作艺人候选
+///   6. 分隔符拆分推测 "艺人 - 歌名"（YTM 约定 Artist - Title）；若某段与清洗后 RawArtist 一致则以该段为艺人
 ///      （兼容旧版 "歌名 - 艺人" 顺序）；剩余段重组为歌名
-///   6. 艺人候选排序：清洗后 RawArtist（结构化元数据，最可信）→ 标题拆分艺人 → 括号内 feat./with 艺人，去重保序
+///   7. 艺人候选排序：清洗后 RawArtist（结构化元数据，最可信）→ 标题拆分艺人 → 「」对前/后文本 → 括号内 feat./with 艺人，去重保序
 ///
 /// 热加载：FromRulesFile 通过 FileSystemWatcher 监听规则文件，防抖 300ms 后原子替换规则快照；
 /// 解析失败保留旧规则不崩溃。Clean 只读 volatile 快照，线程安全。
@@ -24,6 +25,14 @@ public sealed class TitleCleaner : ITitleCleaner, IDisposable
 {
     private static readonly Regex WhitespaceCollapseRegex = new(@"\s+", RegexOptions.Compiled);
     private static readonly Regex DanglingSeparatorRegex = new(@"^[\s\-–—―－/|｜]+|[\s\-–—―－/|｜]+$", RegexOptions.Compiled);
+
+    /// <summary>首个「」角括弧对（内容不嵌套）。「」（U+300C/300D）不在剥离括号表内，由本规则单独处理。</summary>
+    private static readonly Regex KagiPairRegex = new(@"「([^「」]*)」", RegexOptions.Compiled);
+
+    /// <summary>「」内容/前后缀噪声词（全词匹配）：命中说明「」内是标注而非歌名（如「MV」「OP」），放弃抢救。</summary>
+    private static readonly Regex KagiNoiseRegex = new(
+        @"^(?:mv|music\s+video|official|audio|live|cover|remix|hd|4k|8k|full(?:\s+ver\.?)?|shorts?|teaser|cm|op|ed|ost|bgm)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private readonly object _gate = new();
     private volatile CompiledRules _rules;
@@ -180,6 +189,9 @@ public sealed class TitleCleaner : ITitleCleaner, IDisposable
         title = rules.DecorationRegex.Replace(title, " ");
         title = CollapseWhitespace(title);
 
+        // TASK-601：「」角括弧歌名抢救（剥括号之后、分隔符拆分之前；内容含分隔符时由后续拆分/罗马音规则收敛）
+        title = ExtractKagiQuotedTitle(title, out var kagiArtist);
+
         // RawArtist（频道名）路径：剥 " - Topic" 等频道后缀
         var cleanArtist = rules.DecorationRegex.Replace(artist, " ");
         cleanArtist = CollapseWhitespace(StripAffixes(cleanArtist, rules));
@@ -221,10 +233,38 @@ public sealed class TitleCleaner : ITitleCleaner, IDisposable
         var candidates = new List<string>();
         AddCandidate(candidates, cleanArtist); // 结构化元数据艺人最可信，排最前
         AddCandidate(candidates, splitArtist); // 标题拆分艺人
+        AddCandidate(candidates, kagiArtist);  // 「」对前/后文本（艺人「歌名」格式，TASK-601）
         foreach (var name in extracted)        // 括号内 feat./with 艺人
             AddCandidate(candidates, name);
 
         return new CleanedTrack(title, candidates);
+    }
+
+    /// <summary>
+    /// 「」角括弧歌名抢救（TASK-601）：日文 MV 标题常见「艺人『歌名』」式（`艺人「歌名」` / `「歌名」/ 艺人`），
+    /// 「」内才是真正的歌名（如 いきものがかり「さよならララ」）。
+    /// 「」不在剥离括号表内，不抢救会把"艺人「歌名」"整段粘成歌名，五源搜索无法匹配（BUGS.md 第 1 条）。
+    /// 规则：首个「」对内容（≥2 字符且非噪声词）提升为歌名；对前文本非空且非噪声 → 追加为艺人候选
+    /// （频道名一致/缺失/搬运场景下 Artist「Title」都是优势解读）；串首格式时对后文本兜底为艺人候选。
+    /// 『』（双角括弧）是作品名标注，不在本规则范围（通常随 () 注释一并剥离）。
+    /// </summary>
+    private static string ExtractKagiQuotedTitle(string title, out string? kagiArtist)
+    {
+        kagiArtist = null;
+        var m = KagiPairRegex.Match(title);
+        if (!m.Success) return title;
+
+        var content = CollapseWhitespace(m.Groups[1].Value);
+        if (content.Length < 2 || KagiNoiseRegex.IsMatch(content)) return title;
+
+        var prefix = TrimDanglingSeparators(CollapseWhitespace(title.Substring(0, m.Index)));
+        var suffix = TrimDanglingSeparators(CollapseWhitespace(title.Substring(m.Index + m.Length)));
+        if (prefix.Length > 0 && !KagiNoiseRegex.IsMatch(prefix))
+            kagiArtist = prefix;                                       // 艺人「歌名」
+        else if (prefix.Length == 0 && suffix.Length is > 0 and <= 50 && !KagiNoiseRegex.IsMatch(suffix))
+            kagiArtist = suffix;                                       // 「歌名」/ 艺人（RawArtist 缺失时兜底）
+
+        return content;
     }
 
     /// <summary>剥括号对（含嵌套）：先找最内层对；白名单命中且无噪声词 → 提取艺人，否则整体剥离。括号位置补空格防粘连。</summary>
