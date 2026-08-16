@@ -132,6 +132,24 @@ public class LyricsEngineTests
     }
 
     [Fact]
+    public async Task 失败原因_剥离防腐层源前缀()
+    {
+        // TASK-604 B 修正：防腐层 ErrorMessage 带「[源]」前缀（如 "[Musixmatch] GetTrack 无返回"），
+        // 引擎构造 SourceFailureDetail 时剥离 → Reason 纯净，UI 拼中文源名不再双重前缀
+        var cache = new FakeCache();
+        var a = new FakeSourceSearcher(LyricsSourceKind.QQMusic,
+            search: () => EngineTestFactory.Fail("[QQMusic] 搜索失败: HttpRequestException host=c.y.qq.com: boom"));
+        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)));
+
+        var result = await engine.GetLyricsAsync(Track(), Dur);
+
+        var failure = Assert.Single(result.Failures!);
+        Assert.Equal(SourceFailureStage.Search, failure.Stage);
+        Assert.DoesNotContain("[QQMusic]", failure.Reason);
+        Assert.StartsWith("搜索失败", failure.Reason);
+    }
+
+    [Fact]
     public async Task 命中路径_不返回Failures()
     {
         // TASK-604 B：正常命中（High/Low）不收集失败 → Failures 保持 null

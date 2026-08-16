@@ -127,7 +127,7 @@ public sealed class LyricsEngine : ILyricsEngine
             if (!outcome.Success)
             {
                 failures.Add(new SourceFailureDetail(source, SourceFailureStage.Search,
-                    outcome.ErrorMessage ?? "搜索失败"));
+                    StripSourcePrefix(source, outcome.ErrorMessage) ?? "搜索失败"));
                 Trace.WriteLine($"[Engine] search end: source={source} success=false candidates=0 error={outcome.ErrorMessage ?? "no data"}");
                 continue; // 单源异常 → 顺延（异常已在 outcome 中带源标识，不静默）
             }
@@ -225,7 +225,7 @@ public sealed class LyricsEngine : ILyricsEngine
             if (!outcome.Success)
             {
                 failures.Add(new SourceFailureDetail(source, SourceFailureStage.Search,
-                    outcome.ErrorMessage ?? "搜索失败"));
+                    StripSourcePrefix(source, outcome.ErrorMessage) ?? "搜索失败"));
                 Trace.WriteLine($"[Engine] SearchCandidates end: source={source} success=false candidates=0 error={outcome.ErrorMessage ?? "no data"}");
                 continue; // 单源异常 → 顺延
             }
@@ -306,7 +306,7 @@ public sealed class LyricsEngine : ILyricsEngine
         {
             Trace.WriteLine($"[Engine] bind fetch failed: source={selected.Source} error={lyrics.ErrorMessage ?? "empty raw text"}");
             return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0,
-                new[] { new SourceFailureDetail(selected.Source, SourceFailureStage.Fetch, lyrics.ErrorMessage ?? "取词失败") });
+                new[] { new SourceFailureDetail(selected.Source, SourceFailureStage.Fetch, StripSourcePrefix(selected.Source, lyrics.ErrorMessage) ?? "取词失败") });
         }
         if (string.IsNullOrEmpty(lyrics.RawText))
         {
@@ -420,7 +420,7 @@ public sealed class LyricsEngine : ILyricsEngine
         if (!lyrics.Success)
         {
             Trace.WriteLine($"[Engine] fetch failed: source={candidate.Source} error={lyrics.ErrorMessage ?? "empty raw text"}");
-            return (null, new SourceFailureDetail(candidate.Source, SourceFailureStage.Fetch, lyrics.ErrorMessage ?? "取词失败"));
+            return (null, new SourceFailureDetail(candidate.Source, SourceFailureStage.Fetch, StripSourcePrefix(candidate.Source, lyrics.ErrorMessage) ?? "取词失败"));
         }
         if (string.IsNullOrEmpty(lyrics.RawText))
         {
@@ -465,6 +465,20 @@ public sealed class LyricsEngine : ILyricsEngine
     /// <summary>日志辅助：SourceId 截断（酷狗 hash / Musixmatch trackId 过长）。</summary>
     private static string Truncate(string value, int max = 32)
         => string.IsNullOrEmpty(value) ? value : (value.Length <= max ? value : value[..max] + "…");
+
+    /// <summary>
+    /// TASK-604 B 修正：防腐层 ErrorMessage 带「[源]」前缀（如 "[Musixmatch] GetTrack 无返回"），
+    /// 而 <see cref="SourceFailureDetail"/> 已含 Source 字段（UI 拼中文源名），双层前缀难读。
+    /// 此处剥离 Reason 开头的 "[源]" 前缀，返回纯净原因；无前缀原样返回，null 透传。
+    /// </summary>
+    private static string? StripSourcePrefix(LyricsSourceKind source, string? reason)
+    {
+        if (string.IsNullOrEmpty(reason)) return reason;
+        var prefix = $"[{source}]";
+        return reason.StartsWith(prefix, StringComparison.Ordinal)
+            ? reason[prefix.Length..].TrimStart(' ', ':')
+            : reason;
+    }
 
     /// <summary>
     /// 每源独立计时器：同源请求（搜索/取词）最小间隔 <see cref="LyricsEngine.DefaultMinSourceInterval"/>。
