@@ -12,6 +12,7 @@ using YTM.Lyrics.Core.Engine;
 using YTM.Lyrics.Core.External.Sources;
 using YTM.Lyrics.Core.Playback;
 using YTM.Lyrics.Core.Playback.Providers;
+using YTM.Lyrics.Core.Session;
 
 namespace YTM.Lyrics.Desktop;
 
@@ -37,6 +38,7 @@ public partial class App : Application
     private PlaybackStateMachine? _machine;
     private LiteDbLyricsCache? _cache;
     private TitleCleaner? _cleaner;
+    private LyricsSession? _session; // TASK-602（ADR-13）：会话编排层，两窗口共享，只做构造与设置分发
 
     // ---- TASK-301：设置持久化 + 桌面歌词窗口 + 全局热键（UI_SPEC §5.1 v1 固定）----
     // TASK-402：热键扩展为两个——Alt+Shift+W 桌面歌词开关 + Ctrl+Shift+R 重置窗口位置
@@ -141,6 +143,9 @@ public partial class App : Application
 
         var engine = BuildEngine(e.Args);
 
+        // ---- TASK-602（ADR-13）：会话编排层（两窗口共享，窗口只订阅渲染） ----
+        _session = new LyricsSession(_machine, _cleaner, engine, _cache!);
+
         // ---- TASK-301/402：设置加载提前（MainWindow 构造需要 settings 作初始字号/翻译开关）----
         // 取证覆盖：--settings-path=&lt;path&gt;（沙箱写不了 %AppData%，与 --cache-db/--log-dir 同级，不参与业务）
         _settingsManager = new SettingsManager(ParseArgValue(e.Args, "--settings-path"));
@@ -148,14 +153,14 @@ public partial class App : Application
         // TASK-402：Load 之后订阅（首启落盘默认值时窗口尚未创建，不触发分发）；Save 成功 → OnSettingsSaved 分发即时生效
         _settingsManager.SettingsSaved += OnSettingsSaved;
 
-        var window = new MainWindow(_machine, _provider, _cleaner, engine, _cache!, shots,
+        var window = new MainWindow(_machine, _provider, _cleaner, _session, shots,
             ParseArgValue(e.Args, "--f9-auto"), _settings);
         _mainWindow = window;
         MainWindow = window;
 
         // ---- TASK-301：桌面歌词窗口壳（共享 _machine；不 Show，默认显示主窗口，PRD 决策4）----
-        // TASK-302：传入 engine + cleaner 供歌词加载（TrackChanged → Clean → GetLyricsAsync）
-        _desktopWindow = new DesktopLyricsWindow(_machine, _settings, _settingsManager, engine, _cleaner, desktopShots);
+        // TASK-302：传 session 供歌词渲染（TASK-602：编排下沉 Core，窗口只订阅渲染）
+        _desktopWindow = new DesktopLyricsWindow(_machine, _settings, _settingsManager, _session, desktopShots);
 
         // ⑪：主窗口手动绑定/解除绑定 → 中转刷新桌面歌词窗口（两窗口独立，TrackChanged 不覆盖手动纠正场景）
         window.ManualLyricsChanged += OnMainWindowManualLyricsChanged;
@@ -213,6 +218,8 @@ public partial class App : Application
         Trace.WriteLine("[App] OnExit: disposing probe provider / cleaner / cache");
         // TASK-501：移除托盘图标（NIM_DELETE），防止进程退出后残留
         _trayIcon?.Dispose(); // Dispose → Remove（NIM_DELETE + DestroyIcon + 日志）
+        _session?.Dispose(); // 退订 machine + 取消在途加载/延迟轮询
+        _session = null;
         _provider?.Dispose();
         _provider = null;
         _cleaner?.Dispose();
@@ -412,9 +419,9 @@ public partial class App : Application
         Trace.WriteLine($"[App] hotkey toggle desktop window: {(_desktopWindow.IsVisible ? "shown" : "hidden")}");
     }
 
-    /// <summary>⑪：主窗口手动绑定/解除绑定后，桌面歌词窗口重载当前曲目（两窗口保持一致）。</summary>
+    /// <summary>⑪：主窗口手动绑定/解除绑定（或清除缓存重搜）后，重载当前曲目经 session 广播到两窗口（TASK-602）。</summary>
     private void OnMainWindowManualLyricsChanged(object? sender, EventArgs e)
-        => _desktopWindow?.ReloadCurrentTrack();
+        => _session?.ReloadAsync();
 
     /// <summary>Ctrl+Shift+R（UI_SPEC §5.1）：桌面歌词窗口位置重置到屏幕居中，清除位置/尺寸持久化字段后保存。</summary>
     private void ResetDesktopWindowPosition()
@@ -534,8 +541,9 @@ public partial class App : Application
         Trace.WriteLine($"[App] RestartWebSocketListener: port {(_provider?.BoundPort.ToString() ?? "none")} -> {newPort}");
         _provider?.Dispose();
         _provider = new WebSocketProbeProvider(newPort);
-        // machine 在构造时绑定 provider 事件且无换绑通道（Core Playback 只读），必须重建并重新注入窗口
+        // machine 在构造时绑定 provider 事件且无换绑通道（Core Playback 只读），必须重建并重新注入
         _machine = new PlaybackStateMachine(_provider);
+        _session?.ReplacePlayback(_machine); // 编排侧换绑（取消在途/延迟搜索）
         _mainWindow?.ReplacePlayback(_machine, _provider);
         _desktopWindow?.ReplacePlayback(_machine);
 
@@ -549,9 +557,10 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 用新源优先级重建 LyricsEngine 并注入两个窗口。取证边界（TASK-402）：
+    /// 用新源优先级重建 LyricsEngine 并注入会话层。取证边界（TASK-402）：
     /// --mock-engine=low|high 的 ForensicLyricsEngine 保持假源，跳过重建；
     /// --mock-engine=manual 走真实 LyricsEngine + 假源字典，可重建（搜索顺序随新优先级）。
+    /// TASK-602：引擎注入目标从两窗口改为共享 LyricsSession（窗口渲染由 LyricsChanged 驱动）。
     /// </summary>
     private void RebuildEngine(IReadOnlyList<LyricsSourceKind> newPriority)
     {
@@ -576,8 +585,7 @@ public partial class App : Application
             new LyricsDocumentParserBridge(),
             newPriority);
         Trace.WriteLine($"[App] engine rebuilt: priority=[{string.Join(", ", newPriority)}]");
-        _mainWindow?.ReplaceEngine(engine);
-        _desktopWindow?.ReplaceEngine(engine);
+        _session?.ReplaceEngine(engine); // 换引擎并立即重载当前曲目 → LyricsChanged 广播 → 两窗口刷新
     }
 
     /// <summary>default_view 即时切换：main → 隐藏桌面歌词、恢复主窗口；desktop → 显示桌面歌词、最小化主窗口。</summary>

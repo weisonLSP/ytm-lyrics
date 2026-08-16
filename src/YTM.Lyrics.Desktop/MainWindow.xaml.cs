@@ -6,29 +6,27 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using YTM.Lyrics.Core.Cache;
 using YTM.Lyrics.Core.Cleaning;
 using YTM.Lyrics.Core.Engine;
 using YTM.Lyrics.Core.Playback;
+using YTM.Lyrics.Core.Session;
 using YTM.Lyrics.Core.Timeline;
 
 namespace YTM.Lyrics.Desktop;
 
 /// <summary>
-/// 主窗口（TASK-104 最简版 + TASK-205 歌词面板，M2 收官）。
+/// 主窗口（TASK-104 最简版 + TASK-205 歌词面板，M2 收官；TASK-602 按 ADR-13 收敛为纯渲染）。
 ///
-/// TASK-205 新增（M2 引擎接入）：
-/// - TrackChanged → TitleCleaner.Clean → LyricsEngine.GetLyricsAsync（全异步，不阻塞 UI）；
-/// - 整首歌词纯文本滚动列表：当前行由 GetInterpolatedPosition() + TimelineNavigator 二分驱动，
-///   DispatcherTimer 200ms 一档；当前行 1.15 倍字号高亮（UI_SPEC §2.1 初值），40% 视口定位（瞬切，
-///   缓动动画 M3 才做）；
-/// - 翻译行默认显示（PRD 决策3 / F12）：LyricLine.Translation 非空时主词下副行小字；
-/// - 底部来源条：来源 + 缓存/网络 + 置信度；Low 时明确提示"低置信结果"（TDD §3.3）；
-/// - 无歌词/负缓存 → "暂无歌词"；加载中 → 加载态；
-/// - 切歌竞态：新 TrackChanged 到达时取消上一首的加载（CancellationToken + 代际序号双守卫）。
+/// 会话编排（播放订阅、TrackSearchDeferrer 延迟搜索、歌词加载、绑定/解绑/重载）已下沉到
+/// Core 层 <see cref="LyricsSession"/>（TASK-602）：本窗口只订阅渲染——
+/// - LyricsSession.TrackChanged → 清空旧渲染 + 加载中/无播放占位；
+/// - LyricsSession.LyricsChanged → 渲染歌词面板/来源栏/状态条（只读 Core 计算出的结果）；
+/// - 仍直接订阅 IPlaybackStateMachine 拿 position 做定位（GetInterpolatedPosition + TimelineNavigator
+///   二分，DispatcherTimer 200ms 一档；当前行 1.15 倍字号高亮，UI_SPEC §2.1 初值）；
+/// - F9 手动搜索/绑定/解绑只调 session 方法并渲染候选列表，业务编排不进窗口。
 ///
-/// 线程纪律（TDD §5）：引擎调用全部异步，ConfigureAwait(false) 回 UI 线程；Clean 为纯函数
-/// 在线程池执行；渲染只读 Core 计算出的当前行索引，Desktop 不重算业务逻辑。
+/// 线程纪律（TDD §5）：session 事件在后台线程触发，本窗口一律 marshal 回 UI 线程再渲染；
+/// 渲染只读 Core 计算出的当前行索引，Desktop 不重算业务逻辑。
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -42,9 +40,8 @@ public partial class MainWindow : Window
 
     private IPlaybackStateMachine _machine;
     private IPlaybackProvider _provider;
-    private readonly ITitleCleaner _cleaner;
-    private ILyricsEngine _engine;
-    private readonly ILyricsCache _cache;
+    private readonly ITitleCleaner _cleaner; // 仅 F9 搜索框预填用（纯函数，UI 准备；歌词链路清洗在 session 内）
+    private readonly LyricsSession _session;
     private readonly IReadOnlyList<(string Path, int DelayMs)> _shots;
     private readonly DispatcherTimer _ticker;
     private readonly Brush _brushPlaying = new SolidColorBrush(Color.FromRgb(0x8F, 0xD6, 0xB6));
@@ -70,14 +67,8 @@ public partial class MainWindow : Window
     // ---- 歌词状态（仅 UI 线程访问） ----
     private LyricDocument? _doc;
     private int _currentLine = -1;
-    private int _loadGen;                        // 代际序号：切歌竞态守卫（与 CTS 双保险）
-    private CancellationTokenSource? _loadCts;
     private readonly List<FrameworkElement> _lineElements = new();
     private readonly List<double> _lineHeights = new();
-
-    // ---- TASK-205F：duration=0 延迟搜索（探针首帧时长无效时等有效时长/3s 超时再搜） ----
-    private readonly TrackSearchDeferrer _deferrer = new();
-    private DispatcherTimer? _deferTimer;
 
     // ---- TASK-401 F9 手动搜索状态（仅 UI 线程访问） ----
     private readonly List<ScoredCandidate> _flatCandidates = new(); // 展平候选（渲染顺序）
@@ -87,8 +78,7 @@ public partial class MainWindow : Window
         IPlaybackStateMachine machine,
         IPlaybackProvider provider,
         ITitleCleaner cleaner,
-        ILyricsEngine engine,
-        ILyricsCache cache,
+        LyricsSession session,
         IReadOnlyList<(string Path, int DelayMs)> shots,
         string? f9AutoKeyword = null,
         AppSettings? settings = null)
@@ -97,8 +87,7 @@ public partial class MainWindow : Window
         _machine = machine;
         _provider = provider;
         _cleaner = cleaner;
-        _engine = engine;
-        _cache = cache;
+        _session = session;
         _shots = shots;
         _f9AutoKeyword = f9AutoKeyword;
         _settings = settings ?? new AppSettings(); // TASK-402：App 传入已加载设置（show_translation / 字号）
@@ -106,8 +95,9 @@ public partial class MainWindow : Window
 
         _provider.SnapshotReceived += OnSnapshotReceived;
         _provider.ProviderLost += OnProviderLost;
-        _machine.TrackChanged += OnTrackChanged;
         _machine.PlayStateChanged += OnPlayStateChanged;
+        _session.TrackChanged += OnSessionTrackChanged;
+        _session.LyricsChanged += OnSessionLyricsChanged;
 
         _ticker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _ticker.Tick += (_, _) => Refresh();
@@ -183,14 +173,10 @@ public partial class MainWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         _ticker.Stop();
-        _deferTimer?.Stop();
-        _deferTimer = null;
-        _loadCts?.Cancel();
-        _loadCts?.Dispose();
-        _loadCts = null;
+        _session.TrackChanged -= OnSessionTrackChanged;
+        _session.LyricsChanged -= OnSessionLyricsChanged;
         _provider.SnapshotReceived -= OnSnapshotReceived;
         _provider.ProviderLost -= OnProviderLost;
-        _machine.TrackChanged -= OnTrackChanged;
         _machine.PlayStateChanged -= OnPlayStateChanged;
     }
 
@@ -206,25 +192,19 @@ public partial class MainWindow : Window
         DispatchRefresh();
     }
 
-    private void OnTrackChanged(object? sender, EventArgs e)
+
+
+    /// <summary>
+    /// 曲目切换（session 透传，后台线程触发）：清空旧渲染并进入加载中/无播放态。
+    /// 仅渲染职责——延迟搜索决策在 session 内（duration=0 时 250ms 轮询等有效时长），窗口不参与。
+    /// </summary>
+    private void OnSessionTrackChanged(object? sender, EventArgs e)
     {
-        // TrackChanged 由状态机在接收线程触发（锁外），本处理器操作 WPF 控件，必须先回 UI 线程
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(() => OnTrackChanged(sender, e));
+            Dispatcher.BeginInvoke(() => OnSessionTrackChanged(sender, e));
             return;
         }
-
-        // TASK-205F：新曲目到达先作废旧等待（决策器状态 + 轮询 timer），防止旧曲目
-        // 的延迟 timer 在切歌后误触发 StartLoad
-        _deferTimer?.Stop();
-        _deferTimer = null;
-        _deferrer.Reset();
-
-        // 切歌竞态：取消上一首仍在途的加载（新 TrackChanged 到达 → 上一首作废）
-        _loadCts?.Cancel();
-        _loadCts?.Dispose();
-        _loadCts = null;
 
         var current = _machine.Current;
         if (current is null)
@@ -233,63 +213,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        // duration ≤ 0（探针首帧时长无效）→ 延迟搜索：等首个 duration>0 快照（缓存键不再漂移）
-        // 或 3s 超时兜底照常搜（任务卡 TASK-205F 杂项 4）
-        var decision = _deferrer.OnTrackChanged(current.Track, DateTimeOffset.UtcNow);
-        if (decision == TrackSearchDecision.Wait)
-        {
-            StartDeferredTimer();
-            return;
-        }
-
-        StartLoad(current.Track);
-    }
-
-    /// <summary>
-    /// 延迟搜索轮询（250ms）：duration>0 快照到达或 3s 超时 → Ready → 用当前快照曲目启动加载。
-    /// 仅 UI 线程调用；Ready 后立即停 timer（单发）。
-    /// </summary>
-    private void StartDeferredTimer()
-    {
-        _deferTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        _deferTimer.Tick += (_, _) =>
-        {
-            var current = _machine.Current;
-            if (current is null)
-            {
-                _deferTimer!.Stop();
-                _deferTimer = null;
-                return;
-            }
-
-            var decision = _deferrer.OnSnapshot(current.Track, DateTimeOffset.UtcNow);
-            switch (decision)
-            {
-                case TrackSearchDecision.Wait:
-                    return; // 时长仍无效且未超时：继续等
-                case TrackSearchDecision.Ready:
-                    _deferTimer!.Stop();
-                    _deferTimer = null;
-                    StartLoad(current.Track); // 用最新（时长已有效）的快照曲目
-                    return;
-                default: // Immediate：等待态已被清除（如切歌竞态），停 timer 防泄漏
-                    _deferTimer!.Stop();
-                    _deferTimer = null;
-                    return;
-            }
-        };
-        _deferTimer.Start();
-    }
-
-    /// <summary>启动一次歌词加载（代际守卫 + CTS），由 OnTrackChanged 与延迟搜索 Ready 共用。</summary>
-    private void StartLoad(TrackInfo track)
-    {
-        var gen = ++_loadGen;
-        _loadCts = new CancellationTokenSource();
-        var ct = _loadCts.Token;
-
+        // 清空旧歌词（切歌竞态结果由 session 代际守卫丢弃，窗口只按最新 LyricsChanged 渲染）
+        _doc = null;
+        _currentLine = -1;
+        ClearLyricsPanel();
         ShowLyricsState("加载中…", isWarn: false);
-        _ = LoadLyricsAsync(track, ct, gen); // fire-and-forget，内部全捕获
     }
 
     private void OnPlayStateChanged(object? sender, EventArgs e) => DispatchRefresh();
@@ -347,49 +275,41 @@ public partial class MainWindow : Window
         UpdateLyricsPosition();
     }
 
-    // ---------------- 歌词加载（全异步，切歌竞态守卫） ----------------
+    // ---------------- 歌词渲染状态（LyricsSession 结果 → 面板/来源栏/状态） ----------------
 
-    private async Task LoadLyricsAsync(TrackInfo raw, CancellationToken ct, int gen)
+    /// <summary>歌词结果到达（session 后台线程触发）：marshal 回 UI 线程后渲染。</summary>
+    private void OnSessionLyricsChanged(object? sender, LyricsRenderState state)
     {
-        LyricsResult result;
-        try
+        if (!Dispatcher.CheckAccess())
         {
-            var cleaned = await Task.Run(() => _cleaner.Clean(raw), ct).ConfigureAwait(false); // 纯函数，线程池执行
-            result = await _engine.GetLyricsAsync(cleaned, raw.DurationSec, ct).ConfigureAwait(false);
+            Dispatcher.BeginInvoke(() => OnSessionLyricsChanged(sender, state));
+            return;
         }
-        catch (OperationCanceledException)
+        ApplyLyricsState(state);
+    }
+
+    /// <summary>把渲染快照应用到面板（结果来自 session 自动搜索或 F9 绑定，渲染逻辑同一套）。</summary>
+    private void ApplyLyricsState(LyricsRenderState state)
+    {
+        if (state.Error is not null)
         {
-            return; // 已被切歌取消，静默退出
-        }
-        catch (Exception ex)
-        {
-            Trace.WriteLine($"[MainWindow] lyrics load failed: {ex.GetType().Name}: {ex.Message}");
-            await Dispatcher.BeginInvoke(() =>
-            {
-                if (gen != _loadGen) return;
-                ShowLyricsState("歌词加载失败", isWarn: true);
-            });
+            _doc = null;
+            ClearLyricsPanel();
+            ShowLyricsState("歌词加载失败", isWarn: true);
+            SourceBarText.Text = "";
+            UnbindButton.Visibility = Visibility.Collapsed;
             return;
         }
 
-        await Dispatcher.BeginInvoke(() =>
-        {
-            if (gen != _loadGen) return; // 期间又切了歌，丢弃本结果
-            ApplyLyricsResult(result);
-        });
-    }
-
-    private void ApplyLyricsResult(LyricsResult result)
-    {
         // TASK-205H：每次结果应用先落一行摘要（Source/Confidence/FromCache/UserBound/行数），
         // 与引擎侧 [Engine] 全链路日志衔接成完整观测链
-        Trace.WriteLine($"[MainWindow] ApplyLyricsResult: source={result.Source?.ToString() ?? "null"} " +
-                        $"confidence={result.Confidence} fromCache={result.FromCache} userBound={result.UserBound} " +
-                        $"lines={result.Document?.Lines.Count ?? 0}");
-        _doc = result.Document;
+        Trace.WriteLine($"[MainWindow] ApplyLyricsState: source={state.Source?.ToString() ?? "null"} " +
+                        $"confidence={state.Confidence} fromCache={state.FromCache} userBound={state.UserBound} " +
+                        $"lines={state.Document?.Lines.Count ?? 0}");
+        _doc = state.Document;
         var doc = _doc;
 
-        if (doc is null || doc.Lines.Count == 0 || result.Confidence == MatchConfidence.None)
+        if (doc is null || doc.Lines.Count == 0 || state.Confidence == MatchConfidence.None)
         {
             _doc = null;
             ClearLyricsPanel();
@@ -405,15 +325,20 @@ public partial class MainWindow : Window
         RenderLyrics(doc);
         _currentLine = -1; // 强制重定位（切歌首帧直接定位，无滚动动画，UI_SPEC §2.1）
         UpdateLyricsPosition();
-        ShowSourceBar(doc, result);
+        ShowSourceBar(doc, state);
 
         // F9 面板联动（TASK-401）：
         // - 绑定结果（UserBound=true）→ 显示"解除绑定"按钮，隐藏搜索面板；
         // - Low 自动结果 → 显示搜索面板（用户可手动校正，PRD S2）；
         // - High 自动结果 → 全部隐藏。
-        UnbindButton.Visibility = result.UserBound ? Visibility.Visible : Visibility.Collapsed;
-        ShowManualSearchPanel(show: !result.UserBound && result.Confidence == MatchConfidence.Low);
+        UnbindButton.Visibility = state.UserBound ? Visibility.Visible : Visibility.Collapsed;
+        ShowManualSearchPanel(show: !state.UserBound && state.Confidence == MatchConfidence.Low);
     }
+
+    /// <summary>F9 绑定结果渲染入口：LyricsResult → 渲染快照（绑定成功经 ⑪ 事件链联动重载，不重复渲染）。</summary>
+    private void ApplyBindResult(LyricsResult result)
+        => ApplyLyricsState(new LyricsRenderState(
+            result.Document, result.Source, result.Confidence, result.FromCache, result.UserBound));
 
     // ---------------- 歌词渲染 ----------------
 
@@ -488,14 +413,14 @@ public partial class MainWindow : Window
         LyricsStatusText.Foreground = isWarn ? _brushWarn : _brushNeutral;
     }
 
-    private void ShowSourceBar(LyricDocument doc, LyricsResult result)
+    private void ShowSourceBar(LyricDocument doc, LyricsRenderState state)
     {
         var source = SourceName(doc.Source);
-        var from = result.FromCache ? "缓存命中" : "网络获取";
-        var conf = result.Confidence == MatchConfidence.Low ? "低置信" : "高置信";
-        var bound = result.UserBound ? " · 🔗 用户绑定" : ""; // F9：绑定结果标识（任务卡 ⑤）
+        var from = state.FromCache ? "缓存命中" : "网络获取";
+        var conf = state.Confidence == MatchConfidence.Low ? "低置信" : "高置信";
+        var bound = state.UserBound ? " · 🔗 用户绑定" : ""; // F9：绑定结果标识（任务卡 ⑤）
 
-        if (result.Confidence == MatchConfidence.Low)
+        if (state.Confidence == MatchConfidence.Low)
         {
             // TDD §3.3：Low 时 UI 明确提示"低置信结果"
             SourceBarText.Text = $"来源：{source} · {from} · {conf}{bound} — ⚠ 低置信结果，请确认歌词是否匹配";
@@ -574,7 +499,7 @@ public partial class MainWindow : Window
         {
             SearchButton.IsEnabled = false;
             Trace.WriteLine($"[MainWindow] manual search: keyword='{keyword}'");
-            var groups = await _engine.SearchCandidatesAsync(keyword);
+            var groups = await _session.SearchCandidatesAsync(keyword);
             var total = groups.Sum(g => g.Candidates.Count);
             Trace.WriteLine($"[MainWindow] manual search done: groups={groups.Count} total={total}");
             RenderCandidates(groups);
@@ -684,9 +609,8 @@ public partial class MainWindow : Window
         var selected = _flatCandidates[_selectedIndex].Result;
         try
         {
-            var cleaned = await Task.Run(() => _cleaner.Clean(current.Track)); // 纯函数，线程池执行
             Trace.WriteLine($"[MainWindow] bind lyrics: source={selected.Source} id={selected.SourceId} title='{selected.Title}'");
-            var result = await _engine.BindLyricsAsync(cleaned, current.Track.DurationSec, selected);
+            var result = await _session.BindLyricsAsync(selected);
             if (result.Confidence == MatchConfidence.None)
             {
                 Trace.WriteLine("[MainWindow] bind failed: confidence=None (fetch or parse failed)");
@@ -694,8 +618,8 @@ public partial class MainWindow : Window
                 return;
             }
 
-            ApplyLyricsResult(result); // 内部联动：UserBound=true → 显示"解除绑定"、隐藏搜索面板
-            ManualLyricsChanged?.Invoke(this, EventArgs.Empty); // ⑪：手动绑定成功 → 通知桌面歌词窗口重载
+            ApplyBindResult(result); // 渲染绑定结果：UserBound=true → 显示"解除绑定"、隐藏搜索面板
+            ManualLyricsChanged?.Invoke(this, EventArgs.Empty); // ⑪：App → session.ReloadAsync → 桌面歌词窗口刷新
             Trace.WriteLine($"[MainWindow] bind success: source={result.Source} userBound={result.UserBound}");
         }
         catch (Exception ex)
@@ -727,29 +651,29 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 清当前曲目缓存（正文/负缓存/用户绑定条目，UnbindAsync 语义不变）+ 重新自动搜索。
+    /// 清当前曲目缓存（正文/负缓存/用户绑定条目，UnbindAsync 语义不变）+ 触发重新自动搜索。
     /// OnUnbindClicked（F9 解除绑定）与 OnClearCacheClicked（清除缓存重搜）共用，避免重复实现。
+    /// 重载经 ⑪ 事件链：session.ReloadAsync → 两窗口统一刷新（会话编排已下沉 Core，窗口不再自行 StartLoad）。
     /// UnbindButton 的显隐属"解除绑定"场景，由调用方单独处理，不在此方法内。
     /// </summary>
     private async Task ClearCacheAndReload()
     {
-        var current = _machine.Current;
-        if (current is null)
+        if (_machine.Current is null)
         {
             return;
         }
 
         try
         {
-            var cleaned = await Task.Run(() => _cleaner.Clean(current.Track)); // 与 GetLyricsAsync 同键
-            var key = CacheKey.Compute(cleaned, current.Track.DurationSec);
-            Trace.WriteLine($"[MainWindow] clear cache & reload: key={key}");
-            await _cache.UnbindAsync(key);
-            Trace.WriteLine($"[MainWindow] clear cache & reload done, re-trigger auto search: key={key}");
+            if (!await _session.UnbindAsync())
+            {
+                Trace.WriteLine("[MainWindow] clear cache & reload failed: unbind failed");
+                ShowLyricsState("清除缓存重搜失败", isWarn: true);
+                return;
+            }
 
             HideManualSearchPanel();
-            StartLoad(current.Track); // 重新自动搜索（缓存/负缓存/绑定均已删除，不再命中）
-            ManualLyricsChanged?.Invoke(this, EventArgs.Empty); // ⑪：解除绑定/清缓存重搜 → 通知桌面歌词窗口重载
+            ManualLyricsChanged?.Invoke(this, EventArgs.Empty); // ⑪：解除绑定/清缓存重搜 → App → session.ReloadAsync
         }
         catch (Exception ex)
         {
@@ -851,26 +775,15 @@ public partial class MainWindow : Window
         Trace.WriteLine($"[MainWindow] UpdateSettings: font={_baseFontSize} showTranslation={settings.show_translation}");
     }
 
-    /// <summary>替换引擎引用（TASK-402 RebuildEngine 注入）：立即用新引擎重新加载当前曲目（即时生效）。</summary>
-    public void ReplaceEngine(ILyricsEngine engine)
-    {
-        _engine = engine;
-        if (_machine.Current is { } cur && !string.IsNullOrWhiteSpace(cur.Track.RawTitle))
-        {
-            StartLoad(cur.Track);
-        }
-        Trace.WriteLine($"[MainWindow] engine replaced: priority=[{string.Join(", ", engine.SourcePriority)}]");
-    }
-
     /// <summary>
     /// 替换播放链路（TASK-402 RestartWebSocketListener：ws_port 变更后 provider/machine 重建）：
     /// 退订旧链路事件、绑定新链路、清空歌词回到等待态（探针重连推帧后自然恢复）。
+    /// 编排侧换绑（取消在途/延迟搜索）由 App 调 session.ReplacePlayback 完成，本方法只管渲染与事件重订。
     /// </summary>
     public void ReplacePlayback(IPlaybackStateMachine machine, IPlaybackProvider provider)
     {
         _provider.SnapshotReceived -= OnSnapshotReceived;
         _provider.ProviderLost -= OnProviderLost;
-        _machine.TrackChanged -= OnTrackChanged;
         _machine.PlayStateChanged -= OnPlayStateChanged;
 
         _machine = machine;
@@ -878,13 +791,10 @@ public partial class MainWindow : Window
 
         _provider.SnapshotReceived += OnSnapshotReceived;
         _provider.ProviderLost += OnProviderLost;
-        _machine.TrackChanged += OnTrackChanged;
         _machine.PlayStateChanged += OnPlayStateChanged;
 
         _doc = null;
         _currentLine = -1;
-        _loadCts?.Cancel();
-        _loadCts = null;
         ClearLyricsPanel();
         ShowLyricsState("等待数据", isWarn: false);
         Refresh();

@@ -72,6 +72,9 @@ nuget.config
 # TASK-104b：桌面端单文件发布产物（不入库，走查时双击运行）
 dist/
 
+# TASK-602：Desktop 独立输出目录构建（绕过运行中实例的 dll 锁定，临时产物）
+.build602/
+
 ## 第三方源码（备选固化方案，TASK-101）
 # external/Lyricify-Lyrics-Helper 为独立 git 仓库（master @ c14bba9），不纳入主仓库版本控制；
 # 固化方式与升级步骤见 README.md「第三方依赖」章节。
