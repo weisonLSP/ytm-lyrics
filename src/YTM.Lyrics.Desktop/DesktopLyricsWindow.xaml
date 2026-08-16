@@ -46,6 +46,10 @@
                     <MenuItem x:Name="MiLocked" Header="锁定位置" IsCheckable="True" Click="OnToggleLocked" />
                     <MenuItem x:Name="MiTopmost" Header="置顶" IsCheckable="True" Click="OnToggleTopmost" />
                     <Separator />
+                    <!-- TASK-603 F11：歌词偏移 ±5s（无歌词时禁用；同一 session 状态与主窗口按钮联动） -->
+                    <MenuItem x:Name="MiOffsetAhead" Header="歌词提前 5s" Click="OnOffsetAheadClicked" />
+                    <MenuItem x:Name="MiOffsetBehind" Header="歌词延后 5s" Click="OnOffsetBehindClicked" />
+                    <Separator />
                     <MenuItem Header="重置窗口位置" Click="OnResetPosition" />
                     <MenuItem Header="隐藏桌面歌词" Click="OnHideWindow" />
                 </ContextMenu>

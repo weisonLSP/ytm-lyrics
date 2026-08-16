@@ -41,7 +41,8 @@ internal sealed class ForensicLyricsEngine : ILyricsEngine
             _source,
             _confidence,
             FromCache: false,
-            UserBound: false));
+            UserBound: false,
+            OffsetSec: 0));
     }
 
     // F9 手动搜索/绑定在取证模式下不可用（mock 引擎不接真实搜索源），空结果/失败语义即可。
@@ -49,5 +50,5 @@ internal sealed class ForensicLyricsEngine : ILyricsEngine
         => Task.FromResult<IReadOnlyList<SourceCandidateGroup>>(Array.Empty<SourceCandidateGroup>());
 
     public Task<LyricsResult> BindLyricsAsync(CleanedTrack track, double durationSec, SourceSearchResult selected, CancellationToken ct = default)
-        => Task.FromResult(new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false));
+        => Task.FromResult(new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0));
 }

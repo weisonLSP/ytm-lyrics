@@ -67,6 +67,7 @@ public partial class MainWindow : Window
     // ---- 歌词状态（仅 UI 线程访问） ----
     private LyricDocument? _doc;
     private int _currentLine = -1;
+    private double _offsetSec; // TASK-603 F11：当前曲目偏移（正=歌词提前显示，负=延后；随 LyricsChanged 更新）
     private readonly List<FrameworkElement> _lineElements = new();
     private readonly List<double> _lineHeights = new();
 
@@ -217,6 +218,7 @@ public partial class MainWindow : Window
         _doc = null;
         _currentLine = -1;
         ClearLyricsPanel();
+        UpdateOffsetButtonsVisibility(); // F11：加载中无歌词，隐藏偏移入口
         ShowLyricsState("加载中…", isWarn: false);
     }
 
@@ -291,10 +293,13 @@ public partial class MainWindow : Window
     /// <summary>把渲染快照应用到面板（结果来自 session 自动搜索或 F9 绑定，渲染逻辑同一套）。</summary>
     private void ApplyLyricsState(LyricsRenderState state)
     {
+        _offsetSec = state.OffsetSec; // F11：渲染定位用当前曲目偏移（缓存命中/AdjustOffset 都会带新值）
+
         if (state.Error is not null)
         {
             _doc = null;
             ClearLyricsPanel();
+            UpdateOffsetButtonsVisibility();
             ShowLyricsState("歌词加载失败", isWarn: true);
             SourceBarText.Text = "";
             UnbindButton.Visibility = Visibility.Collapsed;
@@ -313,6 +318,7 @@ public partial class MainWindow : Window
         {
             _doc = null;
             ClearLyricsPanel();
+            UpdateOffsetButtonsVisibility();
             ShowLyricsState("暂无歌词", isWarn: false);
             SourceBarText.Text = "";
             UnbindButton.Visibility = Visibility.Collapsed;
@@ -326,6 +332,7 @@ public partial class MainWindow : Window
         _currentLine = -1; // 强制重定位（切歌首帧直接定位，无滚动动画，UI_SPEC §2.1）
         UpdateLyricsPosition();
         ShowSourceBar(doc, state);
+        UpdateOffsetButtonsVisibility(); // F11：有歌词 → 显示 ±5s 入口
 
         // F9 面板联动（TASK-401）：
         // - 绑定结果（UserBound=true）→ 显示"解除绑定"按钮，隐藏搜索面板；
@@ -338,7 +345,11 @@ public partial class MainWindow : Window
     /// <summary>F9 绑定结果渲染入口：LyricsResult → 渲染快照（绑定成功经 ⑪ 事件链联动重载，不重复渲染）。</summary>
     private void ApplyBindResult(LyricsResult result)
         => ApplyLyricsState(new LyricsRenderState(
-            result.Document, result.Source, result.Confidence, result.FromCache, result.UserBound));
+            result.Document, result.Source, result.Confidence, result.FromCache, result.UserBound, result.OffsetSec));
+
+    /// <summary>F11：无歌词（无词/失败/加载中）时隐藏偏移按钮。</summary>
+    private void UpdateOffsetButtonsVisibility()
+        => OffsetButtonPanel.Visibility = _doc is { Lines.Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
 
     // ---------------- 歌词渲染 ----------------
 
@@ -699,7 +710,8 @@ public partial class MainWindow : Window
     private void UpdateLyricsPosition()
     {
         if (_doc is null || _doc.Lines.Count == 0) return;
-        var pos = _machine.GetInterpolatedPosition();
+        // F11：定位叠加偏移（+5s=歌词提前显示），effectivePosition = position + OffsetSec
+        var pos = _machine.GetInterpolatedPosition() + TimeSpan.FromSeconds(_offsetSec);
         var idx = TimelineNavigator.FindCurrentLineIndex(_doc, pos);
         SetCurrentLine(idx);
     }
@@ -799,6 +811,22 @@ public partial class MainWindow : Window
         ShowLyricsState("等待数据", isWarn: false);
         Refresh();
         Trace.WriteLine("[MainWindow] playback replaced (provider/machine rebuilt)");
+    }
+
+    // ---------------- TASK-603：F11 歌词偏移（±5s，同一 session 状态与桌面歌词菜单联动） ----------------
+
+    /// <summary>歌词延后 5s：OffsetSec -5，渲染定位 effectivePosition = position - 5。</summary>
+    private void OnOffsetMinusClicked(object sender, RoutedEventArgs e)
+    {
+        _session.AdjustOffset(-5);
+        Trace.WriteLine("[MainWindow] offset -5s requested");
+    }
+
+    /// <summary>歌词提前 5s：OffsetSec +5，渲染定位 effectivePosition = position + 5。</summary>
+    private void OnOffsetPlusClicked(object sender, RoutedEventArgs e)
+    {
+        _session.AdjustOffset(+5);
+        Trace.WriteLine("[MainWindow] offset +5s requested");
     }
 
     /// <summary>主窗口设置按钮（Grid.Row=7）：打开非模态设置窗口（TASK-402 Part C）。</summary>

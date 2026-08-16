@@ -140,6 +140,23 @@ public sealed class LiteDbLyricsCache : ILyricsCache, IDisposable
         }
     });
 
+    /// <summary>
+    /// F11 歌词偏移：更新同键正文缓存条目（自动或绑定）的 OffsetSec，UserBound 原值保留；
+    /// 同键无正文条目则 no-op（LiteDB Update 只改 OffsetSec，其余字段原样）。
+    /// </summary>
+    public Task UpdateOffsetAsync(string cacheKey, double offsetSec) => ExecuteAsync(() =>
+    {
+        var doc = _lyrics.FindById(cacheKey);
+        if (doc is null)
+        {
+            return; // 同键无正文条目：no-op
+        }
+
+        doc.OffsetSec = offsetSec;
+        _lyrics.Update(doc); // 走既有 update 路径，UserBound/RawText 等原样保留
+        Trace.WriteLine($"[Cache] offset updated: key={cacheKey} offset={offsetSec:F1}s userBound={doc.UserBound}");
+    });
+
     public void Dispose()
     {
         if (_disposed)

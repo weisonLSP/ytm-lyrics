@@ -258,6 +258,51 @@ public class LiteDbLyricsCacheTests : IDisposable
         Assert.True(await c2.IsNegativeCachedAsync(negKey));
     }
 
+    // ---------------- TASK-603：F11 歌词偏移（UpdateOffsetAsync） ----------------
+
+    [Fact]
+    public async Task UpdateOffsetAsync_更新自动条目偏移_其余字段不动()
+    {
+        var cache = NewCache();
+        var key = CacheKey.Compute("Song", "Artist", 234.0);
+        await cache.StoreAsync(Entry(key, "auto-raw", offsetSec: 1.5));
+
+        await cache.UpdateOffsetAsync(key, 8.0);
+
+        var hit = await cache.TryGetAsync(key);
+        Assert.NotNull(hit);
+        Assert.Equal(8.0, hit!.OffsetSec);
+        Assert.False(hit.UserBound);   // UserBound 不动
+        Assert.Equal("auto-raw", hit.RawText); // 正文不动
+    }
+
+    [Fact]
+    public async Task UpdateOffsetAsync_更新绑定条目偏移_UserBound保持true()
+    {
+        var cache = NewCache();
+        var key = CacheKey.Compute("Song", "Artist", 234.0);
+        await cache.BindUserChoiceAsync(key, Entry(key, "bound-raw", userBound: true, offsetSec: 0));
+
+        await cache.UpdateOffsetAsync(key, -5.0);
+
+        var hit = await cache.TryGetAsync(key);
+        Assert.NotNull(hit);
+        Assert.Equal(-5.0, hit!.OffsetSec);
+        Assert.True(hit.UserBound);    // 绑定条目的 UserBound 语义保持（永久有效）
+        Assert.Equal("bound-raw", hit.RawText);
+    }
+
+    [Fact]
+    public async Task UpdateOffsetAsync_同键无条目_noop不抛()
+    {
+        var cache = NewCache();
+        var key = CacheKey.Compute("Ghost", "Artist", 100);
+
+        await cache.UpdateOffsetAsync(key, 5.0);
+
+        Assert.Null(await cache.TryGetAsync(key)); // 未创建条目
+    }
+
     [Fact]
     public async Task 并发读写_不炸且终态一致()
     {

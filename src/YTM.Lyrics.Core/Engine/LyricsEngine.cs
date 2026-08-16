@@ -97,7 +97,8 @@ public sealed class LyricsEngine : ILyricsEngine
                     cached.Source,
                     MatchConfidence.High, // 缓存回放不再重新判定（见上报决策点 D2）
                     FromCache: true,
-                    UserBound: cached.UserBound);
+                    UserBound: cached.UserBound,
+                    OffsetSec: cached.OffsetSec); // F11：偏移随缓存透传，重播同曲自动恢复
             }
         }
 
@@ -105,7 +106,7 @@ public sealed class LyricsEngine : ILyricsEngine
         if (await _cache.IsNegativeCachedAsync(cacheKey).ConfigureAwait(false))
         {
             Trace.WriteLine($"[Engine] negative cache hit: key={cacheKey} → None（24h TTL 内不再自动搜索）");
-            return new LyricsResult(null, null, MatchConfidence.None, FromCache: true, UserBound: false);
+            return new LyricsResult(null, null, MatchConfidence.None, FromCache: true, UserBound: false, OffsetSec: 0);
         }
 
         // 3. 逐源搜索 + 打分 + fallback。
@@ -177,7 +178,7 @@ public sealed class LyricsEngine : ILyricsEngine
         Trace.WriteLine($"[Engine] all sources exhausted, write negative cache: key={cacheKey}");
         await _cache.StoreNegativeAsync(cacheKey).ConfigureAwait(false);
         Trace.WriteLine($"[Engine] negative cache written: key={cacheKey}");
-        return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false);
+        return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0);
     }
 
     /// <summary>
@@ -254,7 +255,7 @@ public sealed class LyricsEngine : ILyricsEngine
         if (!_searchers.TryGetValue(selected.Source, out var searcher))
         {
             Trace.WriteLine($"[Engine] bind failed: source not registered: {selected.Source}");
-            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false);
+            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0);
         }
 
         SourceLyricsResult lyrics;
@@ -276,7 +277,7 @@ public sealed class LyricsEngine : ILyricsEngine
         if (!lyrics.Success || string.IsNullOrEmpty(lyrics.RawText))
         {
             Trace.WriteLine($"[Engine] bind fetch failed: source={selected.Source} error={lyrics.ErrorMessage ?? "empty raw text"}");
-            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false);
+            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0);
         }
 
         Trace.WriteLine($"[Engine] bind fetch ok: source={selected.Source} format={lyrics.Format} rawLen={lyrics.RawText.Length}");
@@ -287,7 +288,7 @@ public sealed class LyricsEngine : ILyricsEngine
         {
             Trace.WriteLine($"[Engine] bind parsed empty document, failed: source={selected.Source} " +
                             $"format={lyrics.Format} rawLen={lyrics.RawText.Length}");
-            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false);
+            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0);
         }
 
         Trace.WriteLine($"[Engine] bind store cache key={cacheKey} source={selected.Source} rawLen={lyrics.RawText.Length}");
@@ -305,7 +306,8 @@ public sealed class LyricsEngine : ILyricsEngine
             selected.Source,
             MatchConfidence.High,
             FromCache: false,
-            UserBound: true);
+            UserBound: true,
+            OffsetSec: 0); // 新绑定无偏移（用户可再调 F11）
     }
 
     // ---- 内部 ----
@@ -410,7 +412,8 @@ public sealed class LyricsEngine : ILyricsEngine
             candidate.Source,
             confidence,
             FromCache: false,
-            UserBound: false);
+            UserBound: false,
+            OffsetSec: 0); // 新取词无偏移
     }
 
     private sealed record SourceCandidate(LyricsSourceKind Source, SourceSearchResult Result, SourceMatchScore Score);

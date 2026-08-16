@@ -17,6 +17,7 @@ namespace YTM.Lyrics.Core.Session;
 /// <param name="Confidence">命中置信度。</param>
 /// <param name="FromCache">是否来自缓存。</param>
 /// <param name="UserBound">是否用户手动绑定（F9）。</param>
+/// <param name="OffsetSec">F11 歌词偏移：正=歌词提前显示，负=延后；渲染定位 effectivePosition = position + OffsetSec。</param>
 /// <param name="Error">加载异常信息；非空时其余字段无意义（窗口显示失败态）。</param>
 public sealed record LyricsRenderState(
     LyricDocument? Document,
@@ -24,6 +25,7 @@ public sealed record LyricsRenderState(
     MatchConfidence Confidence,
     bool FromCache,
     bool UserBound,
+    double OffsetSec,
     string? Error = null);
 
 /// <summary>
@@ -53,6 +55,11 @@ public sealed class LyricsSession : IDisposable
     private Timer? _deferTimer;             // 延迟搜索轮询（线程池，无 UI 依赖）
     private int _gen;                        // 代际序号：切歌/重载竞态守卫
     private CancellationTokenSource? _cts;   // 在途加载取消
+
+    // ---- F11 歌词偏移（随缓存持久化；仅当前曲目有效，切歌重置） ----
+    private double _offsetSec;               // 当前曲目偏移：正=歌词提前显示，负=延后
+    private string? _currentCacheKey;        // 当前曲目正文缓存键（AdjustOffset 持久化目标）
+    private LyricsRenderState? _lastState;   // 最近一次成功加载的渲染状态（AdjustOffset 复用广播）
 
     public LyricsSession(
         IPlaybackStateMachine machine,
@@ -115,7 +122,7 @@ public sealed class LyricsSession : IDisposable
         var current = _machine.Current;
         if (current is null)
         {
-            return new LyricsResult(null, null, MatchConfidence.None, false, false);
+            return new LyricsResult(null, null, MatchConfidence.None, false, false, 0);
         }
         var cleaned = await Task.Run(() => _cleaner.Clean(current.Track)).ConfigureAwait(false);
         return await _engine.BindLyricsAsync(cleaned, current.Track.DurationSec, selected, ct)
@@ -176,7 +183,58 @@ public sealed class LyricsSession : IDisposable
             StopDeferredPollingLocked();
             _deferrer.Reset();
             CancelInFlightLocked();
+            ResetOffsetStateLocked();
         }
+    }
+
+    /// <summary>
+    /// F11 歌词偏移：调整当前曲目偏移（正=歌词提前显示，负=延后）并广播新渲染状态，
+    /// 同时持久化到当前曲目缓存条目（重播同曲自动恢复）。
+    /// 前提：当前有非空歌词文档（无词/负缓存时 UI 不显示入口，本方法静默 no-op）。
+    /// 持久化 fire-and-forget（内部全捕获），广播同步发出（窗口立即重定位）。
+    /// </summary>
+    public void AdjustOffset(double deltaSec)
+    {
+        LyricsRenderState? broadcast = null;
+        lock (_gate)
+        {
+            // 无词不调（Document 空 / 异常态）
+            if (_lastState?.Document is not { Lines.Count: > 0 } || _currentCacheKey is null)
+            {
+                return;
+            }
+
+            _offsetSec += deltaSec; // 累加：+5 提前 / -5 延后
+            broadcast = _lastState with { OffsetSec = _offsetSec };
+            _lastState = broadcast;
+            var key = _currentCacheKey;
+            var offset = _offsetSec;
+            _ = PersistOffsetAsync(key, offset);
+        }
+
+        LyricsChanged?.Invoke(this, broadcast!); // 锁外触发，订阅者可回调本类方法
+    }
+
+    /// <summary>F11：持久化偏移到缓存（fire-and-forget，失败只记日志不扰播放）。</summary>
+    private async Task PersistOffsetAsync(string cacheKey, double offsetSec)
+    {
+        try
+        {
+            await _cache.UpdateOffsetAsync(cacheKey, offsetSec).ConfigureAwait(false);
+            Trace.WriteLine($"[LyricsSession] offset persisted: key={cacheKey} offset={offsetSec:F1}s");
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"[LyricsSession] offset persist failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>锁内调用：切歌/换绑时清空当前曲目偏移态。</summary>
+    private void ResetOffsetStateLocked()
+    {
+        _offsetSec = 0;
+        _currentCacheKey = null;
+        _lastState = null;
     }
 
     public void Dispose()
@@ -202,6 +260,7 @@ public sealed class LyricsSession : IDisposable
             StopDeferredPollingLocked();
             _deferrer.Reset();
             CancelInFlightLocked();
+            ResetOffsetStateLocked(); // 偏移属当前曲目，切歌清空（重播经缓存恢复）
 
             var current = _machine.Current;
             if (current is not null)
@@ -300,13 +359,14 @@ public sealed class LyricsSession : IDisposable
 
     private async Task LoadLyricsAsync(TrackInfo raw, CancellationToken ct, int gen)
     {
-        LyricsRenderState state;
+        LyricsRenderState? state = null;
+        CleanedTrack? cleaned = null;
         try
         {
-            var cleaned = await Task.Run(() => _cleaner.Clean(raw), ct).ConfigureAwait(false); // 纯函数，线程池执行
+            cleaned = await Task.Run(() => _cleaner.Clean(raw), ct).ConfigureAwait(false); // 纯函数，线程池执行
             var result = await _engine.GetLyricsAsync(cleaned, raw.DurationSec, ct).ConfigureAwait(false);
             state = new LyricsRenderState(result.Document, result.Source, result.Confidence,
-                result.FromCache, result.UserBound);
+                result.FromCache, result.UserBound, result.OffsetSec);
         }
         catch (OperationCanceledException)
         {
@@ -315,14 +375,22 @@ public sealed class LyricsSession : IDisposable
         catch (Exception ex)
         {
             Trace.WriteLine($"[LyricsSession] lyrics load failed: {ex.GetType().Name}: {ex.Message}");
-            state = new LyricsRenderState(null, null, MatchConfidence.None, false, false, ex.Message);
+            state = new LyricsRenderState(null, null, MatchConfidence.None, false, false, 0, ex.Message);
         }
 
         lock (_gate)
         {
             if (gen != _gen) return; // 期间又切了歌/重载，丢弃本结果
+            if (state.Error is null && cleaned is not null)
+            {
+                // F11：记录当前曲目缓存键与偏移（重播同曲恢复 + AdjustOffset 持久化目标）
+                _currentCacheKey = CacheKey.Compute(cleaned, raw.DurationSec);
+                _offsetSec = state.OffsetSec; // 缓存命中透传既有偏移；新取词为 0
+                _lastState = state;
+            }
         }
 
+        if (state is null) return; // 防御：不可达（try/catch 均已赋值或 return）
         LyricsChanged?.Invoke(this, state); // 锁外触发，订阅者可回调本类方法
     }
 }

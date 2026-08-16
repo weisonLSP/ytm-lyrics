@@ -67,18 +67,28 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="SourceBarText" Grid.Column="0"
                        Text="" FontSize="13" Foreground="#7C7C8A"
                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-            <Button x:Name="UnbindButton" Grid.Column="1" Content="解除绑定"
+            <!-- TASK-603 F11：歌词偏移 ±5s（无歌词时隐藏）。+5s = 歌词提前显示；-5s = 歌词延后 -->
+            <StackPanel x:Name="OffsetButtonPanel" Grid.Column="1" Orientation="Horizontal"
+                        Margin="12,0,0,0" VerticalAlignment="Center" Visibility="Collapsed">
+                <Button x:Name="OffsetMinusButton" Content="-5s" Padding="8,4" FontSize="12"
+                        Click="OnOffsetMinusClicked" ToolTip="歌词延后 5 秒" />
+                <Button x:Name="OffsetPlusButton" Content="+5s" Margin="6,0,0,0" Padding="8,4" FontSize="12"
+                        Click="OnOffsetPlusClicked" ToolTip="歌词提前 5 秒" />
+            </StackPanel>
+            <Button x:Name="UnbindButton" Grid.Column="2" Content="解除绑定"
                     Visibility="Collapsed" Margin="12,0,0,0" Padding="10,4"
                     FontSize="12" Click="OnUnbindClicked" />
             <!-- TASK-503：常驻手动搜索入口（Low/None 被动弹出之外，用户可随时主动打开面板；打开时自动预填歌名） -->
-            <Button x:Name="SearchLyricsButton" Grid.Column="2" Content="🔍 搜索歌词"
+            <Button x:Name="SearchLyricsButton" Grid.Column="3" Content="🔍 搜索歌词"
                     Margin="12,0,0,0" Padding="10,4"
                     FontSize="12" Click="OnSearchLyricsClicked" />
-            <Button x:Name="SettingsButton" Grid.Column="3" Content="⚙ 设置"
+            <Button x:Name="SettingsButton" Grid.Column="4" Content="⚙ 设置"
                     Margin="12,0,0,0" Padding="10,4"
                     FontSize="12" Click="OnOpenSettingsClicked" />
         </Grid>

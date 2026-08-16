@@ -58,6 +58,16 @@ internal sealed class FakeCache : ILyricsCache
         _negative.Remove(cacheKey);
         return Task.CompletedTask;
     }
+
+    /// <summary>F11 歌词偏移：更新同键正文条目 OffsetSec，UserBound 保留；无条目 no-op（与 LiteDB 语义一致）。</summary>
+    public Task UpdateOffsetAsync(string cacheKey, double offsetSec)
+    {
+        if (_lyrics.TryGetValue(cacheKey, out var entry))
+        {
+            _lyrics[cacheKey] = entry with { OffsetSec = offsetSec };
+        }
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>

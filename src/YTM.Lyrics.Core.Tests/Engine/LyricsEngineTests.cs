@@ -63,6 +63,35 @@ public class LyricsEngineTests
     }
 
     [Fact]
+    public async Task 缓存命中_偏移随结果透传()
+    {
+        // TASK-603 F11：偏移随缓存持久化，重播同曲时 LyricsResult.OffsetSec 透传缓存值
+        var cache = new FakeCache();
+        cache.Seed(new CachedLyrics(CacheKey.Compute(Track(), Dur), "cached-raw", null,
+            LyricsSourceKind.Kugou, UserBound: false, OffsetSec: 7.5, DateTimeOffset.UtcNow));
+        var engine = EngineTestFactory.Create(cache, Searchers());
+
+        var result = await engine.GetLyricsAsync(Track(), Dur);
+
+        Assert.True(result.FromCache);
+        Assert.Equal(7.5, result.OffsetSec);
+    }
+
+    [Fact]
+    public async Task 新取词_偏移为零()
+    {
+        // TASK-603 F11：新取词/绑定无既有偏移 → OffsetSec=0
+        var cache = new FakeCache();
+        var a = new FakeSourceSearcher(LyricsSourceKind.QQMusic, search: () => EngineTestFactory.Ok(EngineTestFactory.High("qq-id")));
+        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)));
+
+        var result = await engine.GetLyricsAsync(Track(), Dur);
+
+        Assert.False(result.FromCache);
+        Assert.Equal(0, result.OffsetSec);
+    }
+
+    [Fact]
     public async Task 负缓存命中_返回None_不再自动搜索()
     {
         var cache = new FakeCache();

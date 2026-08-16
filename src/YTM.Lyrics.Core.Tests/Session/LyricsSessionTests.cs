@@ -34,6 +34,16 @@ public class LyricsSessionTests
         Assert.True(condition(), $"condition not met within {timeoutMs}ms");
     }
 
+    private static async Task WaitForAsync(Func<Task<bool>> condition, int timeoutMs = 3000)
+    {
+        var sw = Stopwatch.StartNew();
+        while (!await condition() && sw.ElapsedMilliseconds < timeoutMs)
+        {
+            await Task.Delay(10);
+        }
+        Assert.True(await condition(), $"condition not met within {timeoutMs}ms");
+    }
+
     private static LyricsSession CreateSession(
         FakeMachine machine, FakeEngine engine, out FakeCache cache, out FakeCleaner cleaner)
     {
@@ -256,6 +266,120 @@ public class LyricsSessionTests
 
         Assert.Equal(0, engine.GetCalls);
     }
+
+    // ---------------- TASK-603：F11 歌词偏移（±5s，随缓存持久化） ----------------
+
+    /// <summary>
+    /// 冻结样例：某句原 Start=18s，人声 13s 就该唱（歌词慢 5s）。点 +5s 后 OffsetSec=5，
+    /// position=13 时 effectivePosition=18 → 命中该句 = 提前 5s 显示；-5s 反向（延后）。
+    /// 渲染公式：effectivePosition = position + OffsetSec，再经 TimelineNavigator 二分定位。
+    /// </summary>
+    [Fact]
+    public void 偏移定位_加5秒提前命中_减5秒延后命中()
+    {
+        var doc = new LyricDocument
+        {
+            Source = LyricsSourceKind.QQMusic,
+            Lines = new[]
+            {
+                new LyricLine(TimeSpan.FromSeconds(10), null, "A", null, null),
+                new LyricLine(TimeSpan.FromSeconds(18), null, "B", null, null),
+                new LyricLine(TimeSpan.FromSeconds(25), null, "C", null, null),
+            },
+        };
+
+        Assert.Equal(1, TimelineNavigator.FindCurrentLineIndex(doc, TimeSpan.FromSeconds(13 + 5))); // +5s：position=13 → effective=18 → B 提前显示
+        Assert.Equal(1, TimelineNavigator.FindCurrentLineIndex(doc, TimeSpan.FromSeconds(23 - 5))); // -5s：position=23 → effective=18 → B 延后显示
+        Assert.Equal(0, TimelineNavigator.FindCurrentLineIndex(doc, TimeSpan.FromSeconds(13)));       // 无偏移对照组：position=13 → 仍 A
+    }
+
+    [Fact]
+    public async Task AdjustOffset_累加并广播与持久化()
+    {
+        var machine = new FakeMachine { Current = Snap(Track()) };
+        var engine = new FakeEngine();
+        var session = CreateSession(machine, engine, out var cache, out _);
+        // F11 真实场景：当前曲目歌词已在正文缓存（重播命中/新取词落盘后），偏移持久化目标为该条目。
+        // FakeEngine 不走缓存，故手动 seed（UpdateOffsetAsync 对无条目 no-op，测不到持久化）。
+        var key = CacheKey.Compute(new CleanedTrack("晴天", new[] { "周杰伦" }), 269);
+        cache.Seed(new CachedLyrics(key, "raw", null, LyricsSourceKind.QQMusic, false, 0, T0));
+        var received = new List<LyricsRenderState>();
+        session.LyricsChanged += (_, s) => received.Add(s);
+
+        machine.RaiseTrackChanged(); // 加载成功（新取词 OffsetSec=0）
+        await WaitFor(() => received.Count >= 1);
+
+        session.AdjustOffset(+5); // 歌词提前 5s
+        session.AdjustOffset(-3); // 再延后 3s → 净 +2
+
+        Assert.Equal(3, received.Count);          // 初始 + 两次 AdjustOffset 广播（同步）
+        Assert.Equal(5, received[1].OffsetSec);   // 累加语义：+5
+        Assert.Equal(2, received[2].OffsetSec);   // 累加语义：+5-3
+
+        // 持久化：缓存条目 OffsetSec 已更新（PersistOffsetAsync fire-and-forget，轮询等落盘）
+        await WaitForAsync(async () => (await cache.TryGetAsync(key))?.OffsetSec == 2);
+        session.Dispose();
+    }
+
+    [Fact]
+    public async Task 加载后渲染状态_透传引擎偏移()
+    {
+        // 缓存命中语义：引擎返回 OffsetSec=3（既有偏移）→ session 广播带 3，窗口据此定位
+        var machine = new FakeMachine { Current = Snap(Track()) };
+        var engine = new FakeEngine(_ => Task.FromResult(FakeEngine.Ok with { OffsetSec = 3 }));
+        var session = CreateSession(machine, engine, out _, out _);
+        LyricsRenderState? received = null;
+        session.LyricsChanged += (_, s) => received = s;
+
+        machine.RaiseTrackChanged();
+        await WaitFor(() => received is not null);
+
+        Assert.Equal(3, received!.OffsetSec);
+        session.Dispose();
+    }
+
+    [Fact]
+    public async Task AdjustOffset_无歌词_静默不广播不写缓存()
+    {
+        // 负缓存/无词：引擎返回 None（Document null）→ AdjustOffset 静默 no-op（UI 也不显示入口）
+        var machine = new FakeMachine { Current = Snap(Track()) };
+        var engine = new FakeEngine(_ => Task.FromResult(
+            new LyricsResult(null, null, MatchConfidence.None, false, false, 0)));
+        var session = CreateSession(machine, engine, out var cache, out _);
+        var broadcasts = 0;
+        session.LyricsChanged += (_, _) => broadcasts++;
+
+        machine.RaiseTrackChanged();
+        await WaitFor(() => broadcasts >= 1); // None 广播（无词）
+
+        session.AdjustOffset(+5);
+        await Task.Delay(100);
+        Assert.Equal(1, broadcasts); // 无词：不广播
+        Assert.Empty(cache.Stored);  // 无词不写正文缓存 → UpdateOffsetAsync no-op（无条目）
+        session.Dispose();
+    }
+
+    [Fact]
+    public async Task 切歌后偏移重置_新曲目从零开始()
+    {
+        var machine = new FakeMachine { Current = Snap(Track(durationSec: 269, title: "旧歌")) };
+        var engine = new FakeEngine();
+        var session = CreateSession(machine, engine, out _, out _);
+        var received = new List<LyricsRenderState>();
+        session.LyricsChanged += (_, s) => received.Add(s);
+
+        machine.RaiseTrackChanged();
+        await WaitFor(() => received.Count >= 1);
+        session.AdjustOffset(+5);
+        Assert.Equal(5, received[^1].OffsetSec);
+
+        // 切歌：偏移态清空（重播同曲才经缓存恢复）
+        machine.Current = Snap(Track(durationSec: 200, title: "新歌"));
+        machine.RaiseTrackChanged();
+        await WaitFor(() => received.Count >= 3); // 旧(0) + 偏移(5) + 新歌加载(0)
+        Assert.Equal(0, received[^1].OffsetSec);
+        session.Dispose();
+    }
 }
 
 /// <summary>可手动驱动的 IPlaybackStateMachine（position 渲染职责不在 session，测试只驱动 TrackChanged）。</summary>
@@ -299,7 +423,7 @@ internal sealed class FakeEngine : ILyricsEngine
             Source = LyricsSourceKind.QQMusic,
             Lines = new[] { new LyricLine(TimeSpan.Zero, null, "line", null, null) },
         },
-        LyricsSourceKind.QQMusic, MatchConfidence.High, false, false);
+        LyricsSourceKind.QQMusic, MatchConfidence.High, false, false, 0);
 
     public int GetCalls { get; private set; }
     public int BindCalls { get; private set; }
@@ -326,7 +450,7 @@ internal sealed class FakeEngine : ILyricsEngine
     public IReadOnlyList<LyricsSourceKind> SourcePriority { get; } = SourcePriorityDefaults.Adr9;
 }
 
-/// <summary>UnbindAsync 抛异常的缓存（UnbindAsync 失败路径测试）。</summary>
+/// <summary>UnbindAsync 抛异常的缓存（UnbindAsync 失败路径测试）；UpdateOffsetAsync 正常 no-op。</summary>
 internal sealed class ThrowingCache : ILyricsCache
 {
     public Task<CachedLyrics?> TryGetAsync(string cacheKey) => Task.FromResult<CachedLyrics?>(null);
@@ -335,4 +459,5 @@ internal sealed class ThrowingCache : ILyricsCache
     public Task StoreNegativeAsync(string cacheKey) => Task.CompletedTask;
     public Task BindUserChoiceAsync(string cacheKey, CachedLyrics entry) => Task.CompletedTask;
     public Task UnbindAsync(string cacheKey) => throw new InvalidOperationException("boom");
+    public Task UpdateOffsetAsync(string cacheKey, double offsetSec) => Task.CompletedTask;
 }

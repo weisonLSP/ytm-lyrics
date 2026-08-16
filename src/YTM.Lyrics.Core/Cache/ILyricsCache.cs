@@ -25,4 +25,10 @@ public interface ILyricsCache
 
     /// <summary>F9 解除绑定：删除同键正文缓存条目（不区分 UserBound）+ 负缓存条目，下次自动搜索生效。</summary>
     Task UnbindAsync(string cacheKey);
+
+    /// <summary>
+    /// F11 歌词偏移：更新同键正文缓存条目（自动或绑定）的 OffsetSec，UserBound 原值保留；
+    /// 同键无正文条目则 no-op（负缓存/未加载过不影响）。偏移不参与缓存命中判定与 CacheKey 计算。
+    /// </summary>
+    Task UpdateOffsetAsync(string cacheKey, double offsetSec);
 }

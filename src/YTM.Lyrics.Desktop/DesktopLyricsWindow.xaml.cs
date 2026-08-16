@@ -86,6 +86,7 @@ public partial class DesktopLyricsWindow : Window
     // ---- TASK-302 歌词状态（仅 UI 线程访问）----
     private LyricDocument? _doc;
     private int _currentLine = -1;
+    private double _offsetSec; // TASK-603 F11：当前曲目偏移（正=歌词提前显示，负=延后；随 LyricsChanged 更新）
 
     public DesktopLyricsWindow(
         IPlaybackStateMachine machine,
@@ -238,7 +239,7 @@ public partial class DesktopLyricsWindow : Window
         if (_doc is { Lines.Count: > 0 })
         {
             _currentLine = -1; // 强制重渲染（SetCurrentLine 对同 idx 早退）
-            SetCurrentLine(TimelineNavigator.FindCurrentLineIndex(_doc, _machine.GetInterpolatedPosition()));
+            SetCurrentLine(TimelineNavigator.FindCurrentLineIndex(_doc, _machine.GetInterpolatedPosition() + TimeSpan.FromSeconds(_offsetSec))); // F11：定位叠加偏移
         }
 
         // 无歌词行为：当前正处"暂无歌词"占位（有播放、无词）时按新策略重执行
@@ -345,6 +346,8 @@ public partial class DesktopLyricsWindow : Window
 
     private void ApplyLyricsState(LyricsRenderState state)
     {
+        _offsetSec = state.OffsetSec; // F11：渲染定位用当前曲目偏移（缓存命中/AdjustOffset 都会带新值）
+
         Trace.WriteLine($"[DesktopLyricsWindow] ApplyLyricsState: source={state.Source?.ToString() ?? "null"} " +
                         $"confidence={state.Confidence} fromCache={state.FromCache} " +
                         $"lines={state.Document?.Lines.Count ?? 0}");
@@ -382,7 +385,8 @@ public partial class DesktopLyricsWindow : Window
     private void Refresh()
     {
         if (_doc is null || _doc.Lines.Count == 0) return;
-        var pos = _machine.GetInterpolatedPosition();
+        // F11：定位叠加偏移（+5s=歌词提前显示），effectivePosition = position + OffsetSec
+        var pos = _machine.GetInterpolatedPosition() + TimeSpan.FromSeconds(_offsetSec);
         var idx = TimelineNavigator.FindCurrentLineIndex(_doc, pos);
         SetCurrentLine(idx);
     }
@@ -532,7 +536,25 @@ public partial class DesktopLyricsWindow : Window
 
     // ---------------- 右键菜单（逃生口 / 开关，UI_SPEC §3.2、§5.2） ----------------
 
-    private void OnContextMenuOpening(object sender, ContextMenuEventArgs e) => RefreshMenuChecks();
+    private void OnContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        RefreshMenuChecks();
+        RefreshOffsetMenuAvailability(); // F11：无歌词（无词/失败/加载中）时禁用偏移项
+    }
+
+    /// <summary>F11：偏移菜单项可用性（与主窗口按钮同一判定：Document 非空）。</summary>
+    private void RefreshOffsetMenuAvailability()
+    {
+        var hasLyrics = _doc is { Lines.Count: > 0 };
+        MiOffsetAhead.IsEnabled = hasLyrics;
+        MiOffsetBehind.IsEnabled = hasLyrics;
+    }
+
+    /// <summary>F11：歌词提前 5s（OffsetSec +5，同一 session 状态与主窗口按钮实时联动）。</summary>
+    private void OnOffsetAheadClicked(object sender, RoutedEventArgs e) => _session.AdjustOffset(+5);
+
+    /// <summary>F11：歌词延后 5s（OffsetSec -5）。</summary>
+    private void OnOffsetBehindClicked(object sender, RoutedEventArgs e) => _session.AdjustOffset(-5);
 
     private void RefreshMenuChecks()
     {

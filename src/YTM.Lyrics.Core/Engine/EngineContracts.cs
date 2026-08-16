@@ -14,12 +14,14 @@ public enum MatchConfidence { High, Low, None }
 /// <param name="Confidence">命中置信度。</param>
 /// <param name="FromCache">是否来自缓存（正文命中或负缓存短路）。</param>
 /// <param name="UserBound">缓存条目是否用户手动绑定（F9）。</param>
+/// <param name="OffsetSec">F11 歌词偏移：正=歌词提前显示，负=延后；缓存命中透传缓存值，新取词/绑定/无结果为 0。</param>
 public sealed record LyricsResult(
     LyricDocument? Document,
     LyricsSourceKind? Source,
     MatchConfidence Confidence,
     bool FromCache,
-    bool UserBound);
+    bool UserBound,
+    double OffsetSec);
 
 /// <summary>
 /// F4 多源搜索引擎契约（TDD §3.3 冻结）。
