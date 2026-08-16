@@ -53,7 +53,7 @@ Lyricify.Lyrics.Helper   external/Lyricify-Lyrics-Helper 源码项目引用（ma
 | ADR-10 | 沙箱构建参数 | 构建/测试统一携带 `-property:MSBuildEnableWorkloadResolver=false -maxcpucount:1`（推荐经 `.nuget/` 响应文件）；**前置：`DOTNET_CLI_HOME` 指向工作区内可写目录（如 `.nuget/dotnet-home`）**（TASK-102 补录） | 本机 SDK 8.0.424 被裁剪缺 workload locator（MSB4276）；受限 token 阻断 MSBuild worker 节点 spawn（0 错误静默退出 1）；CLI 首启 sentinel 写入用户目录被拒。均为官方机制/环境变量重定向，仅沙箱内需要 | 冻结（TASK-101/102 实测） |
 | ADR-11 | NuGet 离线源 | `.nuget/local-feed/` + 仓库根 nuget.config（不提交）；Python/OpenSSL 拉包（`.nuget/fetch_packages.py`） | 受限 token 下 Schannel TLS 不可用（SEC_E_NO_CREDENTIALS），Python ssl 走 OpenSSL 可出网。正常环境删除 nuget.config 即恢复默认源。NU1603 近似匹配警告已接受（不影响产物） | 冻结（TASK-101 实测） |
 | ADR-12 | 发布形态 | **framework-dependent 单文件**（依赖本机 .NET 8 Desktop Runtime），不用 self-contained | self-contained 自解压 native dll 到 `%TEMP%`，本机用户名含单引号（`wei'son`）导致解压路径解析失败，WPF 启动 DllNotFoundException（2026-08-12 实测，事件日志实证）。沙箱验证通过但用户环境崩溃，验证环境差异警示。framework-dependent 单文件无自解压机制，绕开此坑 | 冻结 |
-| ADR-13 | 桌面编排下沉 Core（LyricsSession） | 抽共享会话层持有：播放订阅、TrackSearchDeferrer、搜索/绑定/解绑/重载、设置应用；两个窗口只订阅渲染。禁止引入 MVVM 框架与 DI 容器 | 两窗口各自编排已产生 ⑩⑪ 两次「行为漂移」bug（桌面窗口漏延迟搜索、手动绑定不联动）；MainWindow 929 行 / DesktopLyricsWindow 766 行 / App 680 行 code-behind 违反 §5「只做窗口/渲染」 | 已裁决，触发式执行：随 F11 歌词偏移任务卡落地，不提前重构（2026-08-16） |
+| ADR-13 | 桌面编排下沉 Core（LyricsSession） | 抽共享会话层持有：播放订阅、TrackSearchDeferrer、搜索/绑定/解绑/重载、设置应用；两个窗口只订阅渲染。禁止引入 MVVM 框架与 DI 容器 | 两窗口各自编排已产生 ⑩⑪ 两次「行为漂移」bug（桌面窗口漏延迟搜索、手动绑定不联动）；MainWindow 929 行 / DesktopLyricsWindow 766 行 / App 680 行 code-behind 违反 §5「只做窗口/渲染」 | **已落地（TASK-602，2026-08-16）** |
 
 ## 3. Core 模块契约（设计意图冻结，代码形态以 Contracts 文件为准）
 
@@ -216,7 +216,7 @@ public static class CacheKey
 - 允许：窗口管理（透明/置顶/穿透/拖动）、动画、设置绑定、把 Core 事件转成 ViewModel 通知
 - 禁止：任何 `using YTM.Lyrics.Core.Engine` 以外的业务编排；直接 `using` Helper 命名空间（红线）
 - ViewModel 层薄：一行歌词的显示状态（过去/当前/未来）由 Core 计算，Desktop 只读
-- **现状偏差（2026-08-16 记录）**：MainWindow.xaml.cs 929 行 / DesktopLyricsWindow.xaml.cs 766 行 / App.xaml.cs 680 行，两窗口各自实现会话编排（延迟搜索、绑定联动、设置分发），已产生 ⑩⑪ 两次「两窗口行为漂移」bug。整改按 ADR-13 执行，随 F11 歌词偏移任务卡落地，不提前重构。
+- **现状偏差（2026-08-16 已整改，TASK-602）**：~~MainWindow 929 行 / DesktopLyricsWindow 766 行 / App 680 行，两窗口各自实现会话编排~~ → 已抽 `Core/Session/LyricsSession.cs` 下沉（持有播放订阅、TrackSearchDeferrer、加载/重载、F9 绑定/解绑、引擎与播放链路换绑），两窗口只订阅 `TrackChanged`/`LyricsChanged` 渲染，App 只做构造与设置分发。编排单份，⑩⑪ 漂移根因消除。
 
 ## 6. 测试策略
 

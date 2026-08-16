@@ -6,7 +6,7 @@ YouTube Music 桌面歌词：油猴探针（probe/）→ WebSocket 127.0.0.1:178
 
 1. 依赖单向：Desktop → Core → Helper；Helper 只许经 `Core/External/` 防腐层访问
 2. 探针红线：不依赖任何 YTM CSS 类名/DOM 层级，只认 HTML5 媒体元素 + MediaSession
-3. Desktop 只做窗口/渲染，业务编排在 Core（现状偏差与整改见 TDD ADR-13）
+3. Desktop 只做窗口/渲染，业务编排在 Core（ADR-13 已落地：Core/Session/LyricsSession，TASK-602）
 4. 发布只许 framework-dependent 单文件（ADR-12：本机用户名含单引号，self-contained 会崩）
 5. 构建测试：`dotnet build` / `dotnet test`（沙箱开启时的加参姿势见 docs/history/2026-08.md「沙箱期坑位清单」）
 
