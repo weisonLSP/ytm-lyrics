@@ -18,6 +18,7 @@ namespace YTM.Lyrics.Core.Session;
 /// <param name="FromCache">是否来自缓存。</param>
 /// <param name="UserBound">是否用户手动绑定（F9）。</param>
 /// <param name="OffsetSec">F11 歌词偏移：正=歌词提前显示，负=延后；渲染定位 effectivePosition = position + OffsetSec。</param>
+/// <param name="Failures">TASK-604 B：自动搜索全失败时的逐源原因（UI 状态条汇总）；正常命中/负缓存为 null。</param>
 /// <param name="Error">加载异常信息；非空时其余字段无意义（窗口显示失败态）。</param>
 public sealed record LyricsRenderState(
     LyricDocument? Document,
@@ -26,6 +27,7 @@ public sealed record LyricsRenderState(
     bool FromCache,
     bool UserBound,
     double OffsetSec,
+    IReadOnlyList<SourceFailureDetail>? Failures = null,
     string? Error = null);
 
 /// <summary>
@@ -106,8 +108,8 @@ public sealed class LyricsSession : IDisposable
         return Task.CompletedTask;
     }
 
-    /// <summary>F9 手动搜索候选（转发引擎；窗口渲染候选列表）。</summary>
-    public Task<IReadOnlyList<SourceCandidateGroup>> SearchCandidatesAsync(
+    /// <summary>F9 手动搜索候选（转发引擎；窗口渲染候选列表 + 失败源）。</summary>
+    public Task<ManualSearchOutcome> SearchCandidatesAsync(
         string keyword, CancellationToken ct = default)
         => _engine.SearchCandidatesAsync(keyword, ct);
 
@@ -366,7 +368,7 @@ public sealed class LyricsSession : IDisposable
             cleaned = await Task.Run(() => _cleaner.Clean(raw), ct).ConfigureAwait(false); // 纯函数，线程池执行
             var result = await _engine.GetLyricsAsync(cleaned, raw.DurationSec, ct).ConfigureAwait(false);
             state = new LyricsRenderState(result.Document, result.Source, result.Confidence,
-                result.FromCache, result.UserBound, result.OffsetSec);
+                result.FromCache, result.UserBound, result.OffsetSec, result.Failures);
         }
         catch (OperationCanceledException)
         {
@@ -375,7 +377,7 @@ public sealed class LyricsSession : IDisposable
         catch (Exception ex)
         {
             Trace.WriteLine($"[LyricsSession] lyrics load failed: {ex.GetType().Name}: {ex.Message}");
-            state = new LyricsRenderState(null, null, MatchConfidence.None, false, false, 0, ex.Message);
+            state = new LyricsRenderState(null, null, MatchConfidence.None, false, false, 0, null, ex.Message);
         }
 
         lock (_gate)

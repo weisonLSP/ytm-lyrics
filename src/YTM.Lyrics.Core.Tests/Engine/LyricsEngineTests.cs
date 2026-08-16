@@ -108,6 +108,43 @@ public class LyricsEngineTests
         Assert.Equal(0, a.SearchCount); // PRD S3：24h 内只搜一次
     }
 
+    [Fact]
+    public async Task 全失败_返回逐源失败明细()
+    {
+        // TASK-604 B：每源失败原因逐源收集，全灭时随 None 结果返回（UI 状态条汇总「源:原因」）
+        var cache = new FakeCache();
+        var a = new FakeSourceSearcher(LyricsSourceKind.QQMusic, search: () => EngineTestFactory.Fail("qq down"));
+        var b = new FakeSourceSearcher(LyricsSourceKind.Kugou, search: () => EngineTestFactory.Ok()); // 搜索成功但无候选 → 无数据
+        var c = new FakeSourceSearcher(LyricsSourceKind.Netease, search: () => EngineTestFactory.Ok(EngineTestFactory.TooWeak())); // 候选不过门槛 → 无匹配候选
+        var engine = EngineTestFactory.Create(cache,
+            Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b), (LyricsSourceKind.Netease, c)));
+
+        var result = await engine.GetLyricsAsync(Track(), Dur);
+
+        Assert.Equal(MatchConfidence.None, result.Confidence);
+        Assert.Equal(3, result.Failures!.Count);
+        Assert.Equal(new[] { LyricsSourceKind.QQMusic, LyricsSourceKind.Kugou, LyricsSourceKind.Netease },
+            result.Failures.Select(f => f.Source).ToArray()); // 按源优先级顺序收集
+        Assert.Equal(SourceFailureStage.Search, result.Failures[0].Stage);
+        Assert.Contains("qq down", result.Failures[0].Reason);
+        Assert.Equal("无数据", result.Failures[1].Reason);
+        Assert.Equal("无匹配候选", result.Failures[2].Reason);
+    }
+
+    [Fact]
+    public async Task 命中路径_不返回Failures()
+    {
+        // TASK-604 B：正常命中（High/Low）不收集失败 → Failures 保持 null
+        var cache = new FakeCache();
+        var a = new FakeSourceSearcher(LyricsSourceKind.QQMusic, search: () => EngineTestFactory.Ok(EngineTestFactory.High("qq-id")));
+        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)));
+
+        var result = await engine.GetLyricsAsync(Track(), Dur);
+
+        Assert.Equal(MatchConfidence.High, result.Confidence);
+        Assert.Null(result.Failures);
+    }
+
     // ---------- fallback 顺序 ----------
 
     [Fact]
@@ -117,7 +154,9 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(LyricsSourceKind.QQMusic, search: () => EngineTestFactory.Ok(EngineTestFactory.High("qq-id")));
         var b = new FakeSourceSearcher(LyricsSourceKind.Kugou, search: () => EngineTestFactory.Ok(EngineTestFactory.High("kg-id")));
         var c = new FakeSourceSearcher(LyricsSourceKind.AppleMusic, search: () => EngineTestFactory.Ok(EngineTestFactory.High("am-id")));
-        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b), (LyricsSourceKind.AppleMusic, c)));
+        // TASK-604 A：AppleMusic 不在默认优先级（四源），本测试显式配置启用（验证扩展点仍可接回）
+        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b), (LyricsSourceKind.AppleMusic, c)),
+            sourcePriority: new[] { LyricsSourceKind.QQMusic, LyricsSourceKind.Kugou, LyricsSourceKind.AppleMusic });
 
         var result = await engine.GetLyricsAsync(Track(), Dur);
 
@@ -136,7 +175,9 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(LyricsSourceKind.QQMusic, search: () => EngineTestFactory.Ok(EngineTestFactory.Low7()));
         var b = new FakeSourceSearcher(LyricsSourceKind.Kugou, search: () => EngineTestFactory.Ok(EngineTestFactory.High("kg-id")));
         var c = new FakeSourceSearcher(LyricsSourceKind.AppleMusic, search: () => EngineTestFactory.Ok(EngineTestFactory.High()));
-        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b), (LyricsSourceKind.AppleMusic, c)));
+        // TASK-604 A：显式配置 AppleMusic（扩展点验证）
+        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b), (LyricsSourceKind.AppleMusic, c)),
+            sourcePriority: new[] { LyricsSourceKind.QQMusic, LyricsSourceKind.Kugou, LyricsSourceKind.AppleMusic });
 
         var result = await engine.GetLyricsAsync(Track(), Dur);
 
@@ -155,7 +196,9 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(LyricsSourceKind.QQMusic, search: () => EngineTestFactory.Fail());
         var b = new FakeSourceSearcher(LyricsSourceKind.Kugou, search: () => EngineTestFactory.Ok());
         var c = new FakeSourceSearcher(LyricsSourceKind.AppleMusic, search: () => EngineTestFactory.Ok(EngineTestFactory.High("am-id")));
-        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b), (LyricsSourceKind.AppleMusic, c)));
+        // TASK-604 A：显式配置 AppleMusic（扩展点验证）
+        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b), (LyricsSourceKind.AppleMusic, c)),
+            sourcePriority: new[] { LyricsSourceKind.QQMusic, LyricsSourceKind.Kugou, LyricsSourceKind.AppleMusic });
 
         var result = await engine.GetLyricsAsync(Track(), Dur);
 
@@ -311,7 +354,9 @@ public class LyricsEngineTests
         var a = new FakeSourceSearcher(LyricsSourceKind.QQMusic, search: () => EngineTestFactory.Fail());
         var b = new FakeSourceSearcher(LyricsSourceKind.Kugou, search: () => EngineTestFactory.Ok());
         var c = new FakeSourceSearcher(LyricsSourceKind.AppleMusic, search: () => EngineTestFactory.Ok(EngineTestFactory.TooWeak()));
-        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b), (LyricsSourceKind.AppleMusic, c)));
+        // TASK-604 A：显式配置 AppleMusic（扩展点验证）
+        var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b), (LyricsSourceKind.AppleMusic, c)),
+            sourcePriority: new[] { LyricsSourceKind.QQMusic, LyricsSourceKind.Kugou, LyricsSourceKind.AppleMusic });
 
         var result = await engine.GetLyricsAsync(Track(), Dur);
 

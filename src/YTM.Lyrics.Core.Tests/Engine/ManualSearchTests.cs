@@ -48,9 +48,11 @@ public class ManualSearchTests
         var engine = EngineTestFactory.Create(
             cache,
             Searchers((LyricsSourceKind.QQMusic, a), (LyricsSourceKind.Kugou, b), (LyricsSourceKind.AppleMusic, c)),
-            scorer: KeywordScorer);
+            scorer: KeywordScorer,
+            sourcePriority: new[] { LyricsSourceKind.QQMusic, LyricsSourceKind.Kugou, LyricsSourceKind.AppleMusic }); // TASK-604 A：显式配置 AppleMusic（扩展点）
 
-        var groups = await engine.SearchCandidatesAsync("Song");
+        var outcome = await engine.SearchCandidatesAsync("Song");
+        var groups = outcome.Groups;
 
         // 分组：QQMusic（2 个有效候选，Wrong 被硬门槛过滤）+ AppleMusic（1）；Kugou 失败顺延
         Assert.Equal(2, groups.Count);
@@ -62,6 +64,12 @@ public class ManualSearchTests
 
         var am = Assert.Single(groups, g => g.Source == LyricsSourceKind.AppleMusic);
         Assert.Single(am.Candidates);
+
+        // TASK-604 B：Kugou 失败（搜索异常）记入 Failures，其余源不误报
+        var failure = Assert.Single(outcome.Failures);
+        Assert.Equal(LyricsSourceKind.Kugou, failure.Source);
+        Assert.Equal(SourceFailureStage.Search, failure.Stage);
+        Assert.NotNull(failure.Reason);
 
         Assert.Empty(a.FetchedIds);   // 只搜索，不取词（两段式第一段）
         Assert.Empty(c.FetchedIds);
@@ -80,9 +88,14 @@ public class ManualSearchTests
                 EngineTestFactory.Candidate("Wrong", "qq-2", 240)));
         var engine = EngineTestFactory.Create(cache, Searchers((LyricsSourceKind.QQMusic, a)), scorer: KeywordScorer);
 
-        var groups = await engine.SearchCandidatesAsync("Song");
+        var outcome = await engine.SearchCandidatesAsync("Song");
+        var groups = outcome.Groups;
 
         Assert.Empty(groups); // 无有效候选 → 不产出任何分组
+        // TASK-604 B：全部候选被歌名硬门槛过滤 → 该源记「无匹配候选」
+        var failure = Assert.Single(outcome.Failures);
+        Assert.Equal(LyricsSourceKind.QQMusic, failure.Source);
+        Assert.Equal("无匹配候选", failure.Reason);
         Assert.Empty(a.FetchedIds);
         Assert.Empty(cache.Stored);
     }
@@ -138,6 +151,11 @@ public class ManualSearchTests
         Assert.Equal(MatchConfidence.None, result.Confidence);
         Assert.False(result.UserBound);
         Assert.Null(result.Document);
+        // TASK-604 B：失败明细（源 + 阶段 + 原因），UI 据此显示「绑定失败：QQ音乐 {原因}」
+        var failure = Assert.Single(result.Failures!);
+        Assert.Equal(LyricsSourceKind.QQMusic, failure.Source);
+        Assert.Equal(SourceFailureStage.Fetch, failure.Stage);
+        Assert.Contains("取词失败", failure.Reason);
         Assert.Null(await cache.TryGetAsync(CacheKey.Compute(Track(), Dur))); // 失败不写绑定缓存
     }
 
@@ -157,6 +175,11 @@ public class ManualSearchTests
 
         Assert.Equal(MatchConfidence.None, result.Confidence); // TASK-205F 防线：空文档不落绑定缓存
         Assert.Null(result.Document);
+        // TASK-604 B：解析空 → Parse 阶段
+        var failure = Assert.Single(result.Failures!);
+        Assert.Equal(LyricsSourceKind.QQMusic, failure.Source);
+        Assert.Equal(SourceFailureStage.Parse, failure.Stage);
+        Assert.Equal("解析空文档", failure.Reason);
         Assert.Null(await cache.TryGetAsync(CacheKey.Compute(Track(), Dur)));
     }
 
@@ -170,6 +193,11 @@ public class ManualSearchTests
         var result = await engine.BindLyricsAsync(Track(), Dur, selected);
 
         Assert.Equal(MatchConfidence.None, result.Confidence);
+        // TASK-604 B：源未注册 → Search 阶段失败明细
+        var failure = Assert.Single(result.Failures!);
+        Assert.Equal(LyricsSourceKind.Musixmatch, failure.Source);
+        Assert.Equal(SourceFailureStage.Search, failure.Stage);
+        Assert.Equal("源未注册", failure.Reason);
         Assert.Null(await cache.TryGetAsync(CacheKey.Compute(Track(), Dur)));
     }
 

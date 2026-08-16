@@ -122,7 +122,7 @@ Lyricify 4 只有 `is_locked`（锁定）。v1 将其拆分为**两个独立、�
 
 | # | 键名 | 类型 | 默认值 | 取值范围 | 说明 |
 |---|---|---|---|---|---|
-| 2 | `lyric_source_priority` | string[] | `["qq","kugou","applemusic","netease","musixmatch"]` | 五源任意排列 | 多源搜索顺序（F4；默认值冻结于 TDD ADR-9，汽水已移出） |
+| 2 | `lyric_source_priority` | string[] | `["qq","kugou","netease","musixmatch"]` | 四源任意排列（applemusic 已从默认移除，显式配置仍可启用） | 多源搜索顺序（F4；默认值冻结于 TDD ADR-9，汽水已移出；TASK-604 Apple Music 移除） |
 | 3 | `show_translation` | bool | true | true/false | 翻译行显示开关（F12；QRC/TTML 自带翻译时生效） |
 | 4 | `cleaner_rules_path` | string | `""` | 合法文件路径或空 | 清洗规则文件；**热加载**（文件变更即重载，不重启）；空=内置默认规则（F3） |
 

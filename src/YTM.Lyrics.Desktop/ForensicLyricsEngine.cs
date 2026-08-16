@@ -46,8 +46,9 @@ internal sealed class ForensicLyricsEngine : ILyricsEngine
     }
 
     // F9 手动搜索/绑定在取证模式下不可用（mock 引擎不接真实搜索源），空结果/失败语义即可。
-    public Task<IReadOnlyList<SourceCandidateGroup>> SearchCandidatesAsync(string keyword, CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<SourceCandidateGroup>>(Array.Empty<SourceCandidateGroup>());
+    public Task<ManualSearchOutcome> SearchCandidatesAsync(string keyword, CancellationToken ct = default)
+        => Task.FromResult(new ManualSearchOutcome(
+            Array.Empty<SourceCandidateGroup>(), Array.Empty<SourceFailureDetail>()));
 
     public Task<LyricsResult> BindLyricsAsync(CleanedTrack track, double durationSec, SourceSearchResult selected, CancellationToken ct = default)
         => Task.FromResult(new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0));

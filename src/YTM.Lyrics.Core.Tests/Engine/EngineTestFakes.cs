@@ -188,7 +188,9 @@ internal static class EngineTestFactory
         IReadOnlyDictionary<LyricsSourceKind, ISourceSearcher> searchers,
         ISourceResultScorer? scorer = null,
         StubLyricsDocumentParser? parser = null,
-        TimeSpan? minSourceInterval = null)
+        TimeSpan? minSourceInterval = null,
+        IReadOnlyList<LyricsSourceKind>? sourcePriority = null)
         => new(cache, searchers, scorer ?? DefaultScorer, parser ?? new StubLyricsDocumentParser(),
+            sourcePriority: sourcePriority, // 默认 null → 引擎回落 ADR-9（TASK-604 A 后为四源）；测试需显式含 AppleMusic 时传入
             minSourceInterval: minSourceInterval ?? TimeSpan.Zero);
 }

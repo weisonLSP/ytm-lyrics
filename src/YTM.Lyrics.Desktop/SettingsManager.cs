@@ -18,7 +18,7 @@ public sealed class AppSettings
 
     // §4.2 歌词与清洗
     public string[] lyric_source_priority { get; set; } =
-        { "qq", "kugou", "applemusic", "netease", "musixmatch" };
+        { "qq", "kugou", "netease", "musixmatch" }; // TASK-604 A：Apple Music 2026-08 移除（歌词 API 需特权 token），代码/枚举保留作扩展点
     public bool show_translation { get; set; } = true;
     public string cleaner_rules_path { get; set; } = "";
 

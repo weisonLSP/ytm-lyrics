@@ -319,12 +319,23 @@ public partial class MainWindow : Window
             _doc = null;
             ClearLyricsPanel();
             UpdateOffsetButtonsVisibility();
-            ShowLyricsState("暂无歌词", isWarn: false);
+            // TASK-604 B：自动搜索全失败 → 状态条显示逐源原因汇总（如「QQ音乐:无数据 · 酷狗:无匹配候选」）；
+            // Failures 为空（负缓存/正常无词）→ 回退原「暂无歌词」提示
+            if (state.Failures is { Count: > 0 })
+            {
+                var reason = string.Join(" · ", state.Failures.Select(f => $"{SourceName(f.Source)}:{f.Reason ?? FailureStageText(f.Stage)}"));
+                ShowLyricsState(reason, isWarn: true);
+                Trace.WriteLine($"[MainWindow] lyrics: none with failures: {reason}");
+            }
+            else
+            {
+                ShowLyricsState("暂无歌词", isWarn: false);
+                Trace.WriteLine("[MainWindow] lyrics: none (no lyrics / negative cache)");
+            }
             SourceBarText.Text = "";
             UnbindButton.Visibility = Visibility.Collapsed;
             // F9：None（无结果/负缓存）→ 提供手动搜索入口
             ShowManualSearchPanel(show: true);
-            Trace.WriteLine("[MainWindow] lyrics: none (no lyrics / negative cache)");
             return;
         }
 
@@ -345,7 +356,8 @@ public partial class MainWindow : Window
     /// <summary>F9 绑定结果渲染入口：LyricsResult → 渲染快照（绑定成功经 ⑪ 事件链联动重载，不重复渲染）。</summary>
     private void ApplyBindResult(LyricsResult result)
         => ApplyLyricsState(new LyricsRenderState(
-            result.Document, result.Source, result.Confidence, result.FromCache, result.UserBound, result.OffsetSec));
+            result.Document, result.Source, result.Confidence, result.FromCache, result.UserBound, result.OffsetSec,
+            result.Failures));
 
     /// <summary>F11：无歌词（无词/失败/加载中）时隐藏偏移按钮。</summary>
     private void UpdateOffsetButtonsVisibility()
@@ -510,10 +522,11 @@ public partial class MainWindow : Window
         {
             SearchButton.IsEnabled = false;
             Trace.WriteLine($"[MainWindow] manual search: keyword='{keyword}'");
-            var groups = await _session.SearchCandidatesAsync(keyword);
+            var outcome = await _session.SearchCandidatesAsync(keyword);
+            var groups = outcome.Groups;
             var total = groups.Sum(g => g.Candidates.Count);
-            Trace.WriteLine($"[MainWindow] manual search done: groups={groups.Count} total={total}");
-            RenderCandidates(groups);
+            Trace.WriteLine($"[MainWindow] manual search done: groups={groups.Count} total={total} failures={outcome.Failures.Count}");
+            RenderCandidates(groups, outcome.Failures); // TASK-604 B：候选列表底部追加失败源一行
             if (total == 0)
             {
                 ShowLyricsState("手动搜索无候选，换个关键词试试", isWarn: true);
@@ -530,8 +543,8 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>把分组候选渲染为可点击列表（来源标签、标题、艺人、时长、匹配分）。</summary>
-    private void RenderCandidates(IReadOnlyList<SourceCandidateGroup> groups)
+    /// <summary>把分组候选渲染为可点击列表（来源标签、标题、艺人、时长、匹配分）+ 失败源汇总行（TASK-604 B）。</summary>
+    private void RenderCandidates(IReadOnlyList<SourceCandidateGroup> groups, IReadOnlyList<SourceFailureDetail> failures)
     {
         ClearCandidates();
 
@@ -573,7 +586,32 @@ public partial class MainWindow : Window
                 Margin = new Thickness(4, 6, 4, 6),
             });
         }
+
+        // TASK-604 B：失败源一行（小字灰显），如「Apple Music: 无歌词 · 网易云: 无数据」；
+        // 全部失败时显示具体原因而非空列表
+        if (failures.Count > 0)
+        {
+            var text = string.Join(" · ", failures.Select(f => $"{SourceName(f.Source)}: {f.Reason ?? FailureStageText(f.Stage)}"));
+            CandidateListPanel.Children.Add(new TextBlock
+            {
+                Text = text,
+                FontSize = 12,
+                Foreground = _brushDim,
+                Margin = new Thickness(4, 6, 4, 6),
+                TextWrapping = TextWrapping.Wrap,
+            });
+        }
     }
+
+    /// <summary>TASK-604 B：失败阶段兜底文案（Reason 为 null 时使用）。</summary>
+    private static string FailureStageText(SourceFailureStage stage) => stage switch
+    {
+        SourceFailureStage.Search => "搜索失败",
+        SourceFailureStage.Fetch => "取词失败",
+        SourceFailureStage.Parse => "解析失败",
+        SourceFailureStage.NoLyrics => "无歌词",
+        _ => "失败",
+    };
 
     private static string BuildCandidateText(LyricsSourceKind source, ScoredCandidate cand)
     {
@@ -624,8 +662,12 @@ public partial class MainWindow : Window
             var result = await _session.BindLyricsAsync(selected);
             if (result.Confidence == MatchConfidence.None)
             {
-                Trace.WriteLine("[MainWindow] bind failed: confidence=None (fetch or parse failed)");
-                ShowLyricsState("绑定失败：取词或解析未成功", isWarn: true);
+                Trace.WriteLine($"[MainWindow] bind failed: confidence=None (fetch or parse failed)");
+                // TASK-604 B：显示具体原因（如「绑定失败：QQ音乐 取词失败」）；Failures 为空回退旧文案
+                var reason = result.Failures is { Count: > 0 }
+                    ? $"{SourceName(result.Failures[0].Source)} {result.Failures[0].Reason ?? FailureStageText(result.Failures[0].Stage)}"
+                    : "取词或解析未成功";
+                ShowLyricsState($"绑定失败：{reason}", isWarn: true);
                 return;
             }
 

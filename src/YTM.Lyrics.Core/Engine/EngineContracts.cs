@@ -7,6 +7,19 @@ namespace YTM.Lyrics.Core.Engine;
 public enum MatchConfidence { High, Low, None }
 
 /// <summary>
+/// 源失败阶段（TASK-604 B：失败原因透明化）。
+/// Search=搜索阶段失败（无数据/无匹配候选/搜索异常）；Fetch=取词阶段失败；
+/// Parse=解析空文档；NoLyrics=接口无歌词返回。
+/// </summary>
+public enum SourceFailureStage { Search, Fetch, Parse, NoLyrics }
+
+/// <summary>单个源的具体失败原因（TASK-604 B；UI 据此展示「{源} {原因}」）。</summary>
+/// <param name="Source">失败的源。</param>
+/// <param name="Stage">失败阶段。</param>
+/// <param name="Reason">具体原因（引擎侧描述，如"无数据"/"解析空文档"/error message；可能为 null）。</param>
+public sealed record SourceFailureDetail(LyricsSourceKind Source, SourceFailureStage Stage, string? Reason);
+
+/// <summary>
 /// 引擎结果（TDD §3.3 冻结）。
 /// </summary>
 /// <param name="Document">统一歌词模型（解析后）。None/解析失败时可能为空文档。</param>
@@ -15,13 +28,24 @@ public enum MatchConfidence { High, Low, None }
 /// <param name="FromCache">是否来自缓存（正文命中或负缓存短路）。</param>
 /// <param name="UserBound">缓存条目是否用户手动绑定（F9）。</param>
 /// <param name="OffsetSec">F11 歌词偏移：正=歌词提前显示，负=延后；缓存命中透传缓存值，新取词/绑定/无结果为 0。</param>
+/// <param name="Failures">TASK-604 B：失败明细（逐源收集）。正常命中路径为 null；全失败（Confidence=None）时带各源原因。</param>
 public sealed record LyricsResult(
     LyricDocument? Document,
     LyricsSourceKind? Source,
     MatchConfidence Confidence,
     bool FromCache,
     bool UserBound,
-    double OffsetSec);
+    double OffsetSec,
+    IReadOnlyList<SourceFailureDetail>? Failures = null);
+
+/// <summary>
+/// F9 手动搜索结果（TASK-604 B：失败源透传）。候选组 + 失败源明细，UI 渲染候选列表并在底部展示失败源。
+/// </summary>
+/// <param name="Groups">各源有效候选分组（已过歌名硬门槛）。</param>
+/// <param name="Failures">失败的源（搜索无数据/异常/无匹配候选），正常无失败时为空列表。</param>
+public sealed record ManualSearchOutcome(
+    IReadOnlyList<SourceCandidateGroup> Groups,
+    IReadOnlyList<SourceFailureDetail> Failures);
 
 /// <summary>
 /// F4 多源搜索引擎契约（TDD §3.3 冻结）。
@@ -35,13 +59,15 @@ public interface ILyricsEngine
     /// <summary>
     /// F9 手动搜索：用户输入原始关键词（不经过 Clean 自动流程），按 <see cref="SourcePriority"/> 逐源搜索，
     /// 每源返回候选列表 + 匹配分。不取词、不写缓存；返回候选中不含 UserBound 语义（那是绑定后的存储层属性）。
-    /// 单源异常/无结果顺延下一源（同 GetLyricsAsync 语义）；无效候选按 <see cref="MatchScoreTable.TitleHardGate"/> 过滤。
+    /// 单源异常/无结果顺延下一源（同 GetLyricsAsync 语义），失败源记入 <see cref="ManualSearchOutcome.Failures"/>（TASK-604 B）；
+    /// 无效候选按 <see cref="MatchScoreTable.TitleHardGate"/> 过滤。
     /// </summary>
-    Task<IReadOnlyList<SourceCandidateGroup>> SearchCandidatesAsync(string keyword, CancellationToken ct = default);
+    Task<ManualSearchOutcome> SearchCandidatesAsync(string keyword, CancellationToken ct = default);
 
     /// <summary>
     /// F9 绑定：对选定候选取词 → 解析 → 写绑定缓存（UserBound=true）→ 返回结果。
-    /// 失败（取词失败/原文空/解析空）返回 Confidence=None 的结果（不写缓存），调用方据此提示。
+    /// 失败（取词失败/原文空/解析空）返回 Confidence=None 的结果（不写缓存），
+    /// <see cref="LyricsResult.Failures"/> 带单个失败明细（TASK-604 B：UI 显示「{源} {原因}」），调用方据此提示。
     /// </summary>
     Task<LyricsResult> BindLyricsAsync(CleanedTrack track, double durationSec, SourceSearchResult selected, CancellationToken ct = default);
 
@@ -100,7 +126,7 @@ public interface ISourceResultScorer
     SourceMatchScore Score(CleanedTrack track, double durationSec, SourceSearchResult candidate);
 }
 
-/// <summary>ADR-9 默认源优先级（冻结）：QQ音乐 → 酷狗 → Apple Music → 网易云 → Musixmatch；汽水已移出歌词源列表。</summary>
+/// <summary>ADR-9 默认源优先级（TASK-604 A：Apple Music 2026-08 移除，歌词 API 需特权 token；代码保留作扩展点，可显式配置启用）：QQ音乐 → 酷狗 → 网易云 → Musixmatch；汽水已移出歌词源列表。</summary>
 public static class SourcePriorityDefaults
 {
     public static readonly IReadOnlyList<LyricsSourceKind> Adr9 =
@@ -108,7 +134,6 @@ public static class SourcePriorityDefaults
         {
             LyricsSourceKind.QQMusic,
             LyricsSourceKind.Kugou,
-            LyricsSourceKind.AppleMusic,
             LyricsSourceKind.Netease,
             LyricsSourceKind.Musixmatch,
         };

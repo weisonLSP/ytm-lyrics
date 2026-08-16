@@ -78,6 +78,9 @@ dist/
 # TASK-603：同款独立输出目录
 .build603/
 
+# TASK-604：同款独立输出目录
+.build604/
+
 ## 第三方源码（备选固化方案，TASK-101）
 # external/Lyricify-Lyrics-Helper 为独立 git 仓库（master @ c14bba9），不纳入主仓库版本控制；
 # 固化方式与升级步骤见 README.md「第三方依赖」章节。

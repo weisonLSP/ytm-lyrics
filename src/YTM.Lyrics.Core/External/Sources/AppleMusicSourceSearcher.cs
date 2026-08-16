@@ -5,7 +5,8 @@ using YTM.Lyrics.Core.Engine;
 namespace YTM.Lyrics.Core.External.Sources;
 
 /// <summary>
-/// Apple Music 源适配器（ADR-9 第三顺位）。
+/// Apple Music 源适配器（ADR-9 历史第三顺位；2026-08 起歌词 API 需 privileged token / media-user-token，
+/// 已从默认源移除；未来有 Apple Music 登录态可经 SetMediaUserToken 接回）。
 /// - 搜索：AppleMusic.Api.Search(keyword)（amp-api.music.apple.com，Api 自动抓取 access token，
 ///   可选 SetMediaUserToken/SetAccessToken 注入——v1 不注入，走自动抓取，坑 #9 已接受）；
 /// - 取词：AppleMusic.Api.GetLyrics(songId) → LyricResponse（内部归一化为 TTML，取 .Ttml）；

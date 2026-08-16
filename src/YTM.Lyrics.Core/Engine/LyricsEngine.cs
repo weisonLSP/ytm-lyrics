@@ -111,6 +111,7 @@ public sealed class LyricsEngine : ILyricsEngine
 
         // 3. 逐源搜索 + 打分 + fallback。
         var lowCandidates = new List<SourceCandidate>(); // 每源最佳 Low 候选（源优先级序）
+        var failures = new List<SourceFailureDetail>();  // TASK-604 B：逐源失败明细（仅全失败时随结果返回）
 
         foreach (var source in SourcePriority)
         {
@@ -118,21 +119,30 @@ public sealed class LyricsEngine : ILyricsEngine
             if (!_searchers.TryGetValue(source, out var searcher))
             {
                 Trace.WriteLine($"[Engine] source not registered, skipped: {source}");
-                continue; // 未启用的源
+                continue; // 未启用的源（不算失败）
             }
 
             Trace.WriteLine($"[Engine] search start: source={source}");
             var outcome = await ThrottledSearchAsync(searcher, track, durationSec, ct).ConfigureAwait(false);
-            if (!outcome.Success || outcome.Results is null || outcome.Results.Count == 0)
+            if (!outcome.Success)
             {
+                failures.Add(new SourceFailureDetail(source, SourceFailureStage.Search,
+                    outcome.ErrorMessage ?? "搜索失败"));
                 Trace.WriteLine($"[Engine] search end: source={source} success=false candidates=0 error={outcome.ErrorMessage ?? "no data"}");
-                continue; // 单源异常/无结果 → 顺延（异常已在 outcome 中带源标识，不静默）
+                continue; // 单源异常 → 顺延（异常已在 outcome 中带源标识，不静默）
+            }
+            if (outcome.Results is null || outcome.Results.Count == 0)
+            {
+                failures.Add(new SourceFailureDetail(source, SourceFailureStage.Search, "无数据"));
+                Trace.WriteLine($"[Engine] search end: source={source} success=true candidates=0 error=no data");
+                continue; // 搜索成功但无候选 → 顺延
             }
             Trace.WriteLine($"[Engine] search end: source={source} success=true candidates={outcome.Results.Count}");
 
             var best = SelectBestCandidate(outcome.Results, track, durationSec, source);
             if (best is null)
             {
+                failures.Add(new SourceFailureDetail(source, SourceFailureStage.Search, "无匹配候选"));
                 Trace.WriteLine($"[Engine] no valid candidate: source={source}");
                 continue; // 无有效候选（未过歌名硬门槛或总分 < Low）
             }
@@ -144,13 +154,14 @@ public sealed class LyricsEngine : ILyricsEngine
             if (best.Score.TotalScore >= _thresholds.HighThreshold)
             {
                 // High 达标即返回；取词失败则降级继续顺延下一源（不写负缓存——搜索命中过，源可能只是瞬时故障）。
-                var hit = await TryFetchAndReturnAsync(best, cacheKey, MatchConfidence.High, ct).ConfigureAwait(false);
+                var (hit, failure) = await TryFetchAndReturnAsync(best, cacheKey, MatchConfidence.High, ct).ConfigureAwait(false);
                 if (hit is not null)
                 {
                     Trace.WriteLine($"[Engine] result returned: confidence=High source={best.Source} fromCache=false");
                     return hit;
                 }
 
+                if (failure is not null) failures.Add(failure);
                 Trace.WriteLine($"[Engine] high fetch failed, fallthrough: source={best.Source}");
                 continue;
             }
@@ -164,13 +175,14 @@ public sealed class LyricsEngine : ILyricsEngine
                      .ThenBy(c => _priorityIndex.GetValueOrDefault(c.Source, int.MaxValue)))
         {
             Trace.WriteLine($"[Engine] low fetch start: source={candidate.Source} total={candidate.Score.TotalScore}");
-            var hit = await TryFetchAndReturnAsync(candidate, cacheKey, MatchConfidence.Low, ct).ConfigureAwait(false);
+            var (hit, failure) = await TryFetchAndReturnAsync(candidate, cacheKey, MatchConfidence.Low, ct).ConfigureAwait(false);
             if (hit is not null)
             {
                 Trace.WriteLine($"[Engine] result returned: confidence=Low source={candidate.Source} fromCache=false");
                 return hit;
             }
 
+            if (failure is not null) failures.Add(failure);
             Trace.WriteLine($"[Engine] low fetch failed: source={candidate.Source}");
         }
 
@@ -178,7 +190,8 @@ public sealed class LyricsEngine : ILyricsEngine
         Trace.WriteLine($"[Engine] all sources exhausted, write negative cache: key={cacheKey}");
         await _cache.StoreNegativeAsync(cacheKey).ConfigureAwait(false);
         Trace.WriteLine($"[Engine] negative cache written: key={cacheKey}");
-        return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0);
+        return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0,
+            failures.Count > 0 ? failures : null); // TASK-604 B：全失败带逐源原因（UI 状态条汇总）
     }
 
     /// <summary>
@@ -190,7 +203,7 @@ public sealed class LyricsEngine : ILyricsEngine
     /// 无效候选复用 <see cref="MatchScoreTable.TitleHardGate"/> 过滤（防错词，PRD R1）。
     /// 单源异常/无结果顺延（同 <see cref="GetLyricsAsync"/> 语义）。
     /// </summary>
-    public async Task<IReadOnlyList<SourceCandidateGroup>> SearchCandidatesAsync(string keyword, CancellationToken ct = default)
+    public async Task<ManualSearchOutcome> SearchCandidatesAsync(string keyword, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(keyword);
         var track = new CleanedTrack(keyword, Array.Empty<string>());
@@ -198,20 +211,29 @@ public sealed class LyricsEngine : ILyricsEngine
         Trace.WriteLine($"[Engine] SearchCandidatesAsync: keyword='{keyword}'");
 
         var groups = new List<SourceCandidateGroup>();
+        var failures = new List<SourceFailureDetail>(); // TASK-604 B：失败源透传（UI 底部一行展示）
         foreach (var source in SourcePriority)
         {
             ct.ThrowIfCancellationRequested();
             if (!_searchers.TryGetValue(source, out var searcher))
             {
                 Trace.WriteLine($"[Engine] SearchCandidates source not registered, skipped: {source}");
-                continue; // 未启用的源
+                continue; // 未启用的源（不算失败）
             }
 
             var outcome = await ThrottledSearchAsync(searcher, track, durationSec, ct).ConfigureAwait(false);
-            if (!outcome.Success || outcome.Results is null || outcome.Results.Count == 0)
+            if (!outcome.Success)
             {
+                failures.Add(new SourceFailureDetail(source, SourceFailureStage.Search,
+                    outcome.ErrorMessage ?? "搜索失败"));
                 Trace.WriteLine($"[Engine] SearchCandidates end: source={source} success=false candidates=0 error={outcome.ErrorMessage ?? "no data"}");
-                continue; // 单源异常/无结果 → 顺延
+                continue; // 单源异常 → 顺延
+            }
+            if (outcome.Results is null || outcome.Results.Count == 0)
+            {
+                failures.Add(new SourceFailureDetail(source, SourceFailureStage.Search, "无数据"));
+                Trace.WriteLine($"[Engine] SearchCandidates end: source={source} success=true candidates=0 error=no data");
+                continue; // 搜索成功但无候选
             }
 
             var scored = new List<ScoredCandidate>();
@@ -233,10 +255,15 @@ public sealed class LyricsEngine : ILyricsEngine
                 groups.Add(new SourceCandidateGroup(source, scored));
                 Trace.WriteLine($"[Engine] SearchCandidates group: source={source} candidates={scored.Count}");
             }
+            else
+            {
+                failures.Add(new SourceFailureDetail(source, SourceFailureStage.Search, "无匹配候选"));
+                Trace.WriteLine($"[Engine] SearchCandidates all filtered: source={source}");
+            }
         }
 
-        Trace.WriteLine($"[Engine] SearchCandidates done: keyword='{keyword}' groups={groups.Count} total={groups.Sum(g => g.Candidates.Count)}");
-        return groups;
+        Trace.WriteLine($"[Engine] SearchCandidates done: keyword='{keyword}' groups={groups.Count} total={groups.Sum(g => g.Candidates.Count)} failures={failures.Count}");
+        return new ManualSearchOutcome(groups, failures);
     }
 
     /// <summary>
@@ -255,7 +282,8 @@ public sealed class LyricsEngine : ILyricsEngine
         if (!_searchers.TryGetValue(selected.Source, out var searcher))
         {
             Trace.WriteLine($"[Engine] bind failed: source not registered: {selected.Source}");
-            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0);
+            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0,
+                new[] { new SourceFailureDetail(selected.Source, SourceFailureStage.Search, "源未注册") });
         }
 
         SourceLyricsResult lyrics;
@@ -274,10 +302,17 @@ public sealed class LyricsEngine : ILyricsEngine
                 $"[{selected.Source}] {ex.GetType().Name}: {ex.Message}");
         }
 
-        if (!lyrics.Success || string.IsNullOrEmpty(lyrics.RawText))
+        if (!lyrics.Success)
         {
             Trace.WriteLine($"[Engine] bind fetch failed: source={selected.Source} error={lyrics.ErrorMessage ?? "empty raw text"}");
-            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0);
+            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0,
+                new[] { new SourceFailureDetail(selected.Source, SourceFailureStage.Fetch, lyrics.ErrorMessage ?? "取词失败") });
+        }
+        if (string.IsNullOrEmpty(lyrics.RawText))
+        {
+            Trace.WriteLine($"[Engine] bind no lyrics: source={selected.Source}");
+            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0,
+                new[] { new SourceFailureDetail(selected.Source, SourceFailureStage.NoLyrics, "无歌词") });
         }
 
         Trace.WriteLine($"[Engine] bind fetch ok: source={selected.Source} format={lyrics.Format} rawLen={lyrics.RawText.Length}");
@@ -288,7 +323,8 @@ public sealed class LyricsEngine : ILyricsEngine
         {
             Trace.WriteLine($"[Engine] bind parsed empty document, failed: source={selected.Source} " +
                             $"format={lyrics.Format} rawLen={lyrics.RawText.Length}");
-            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0);
+            return new LyricsResult(null, null, MatchConfidence.None, FromCache: false, UserBound: false, OffsetSec: 0,
+                new[] { new SourceFailureDetail(selected.Source, SourceFailureStage.Parse, "解析空文档") });
         }
 
         Trace.WriteLine($"[Engine] bind store cache key={cacheKey} source={selected.Source} rawLen={lyrics.RawText.Length}");
@@ -357,8 +393,11 @@ public sealed class LyricsEngine : ILyricsEngine
         return best;
     }
 
-    /// <summary>取词（同源节流）→ 成功则写缓存并返回结果；失败返回 null，调用方顺延。异常同样转失败。</summary>
-    private async Task<LyricsResult?> TryFetchAndReturnAsync(
+    /// <summary>
+    /// 取词（同源节流）→ 成功则写缓存并返回结果；失败返回 (null, 失败明细)（调用方顺延并收集）。
+    /// 失败分类（TASK-604 B）：取词失败 → Fetch；原文空（接口无歌词）→ NoLyrics；解析空 → Parse。
+    /// </summary>
+    private async Task<(LyricsResult? Result, SourceFailureDetail? Failure)> TryFetchAndReturnAsync(
         SourceCandidate candidate, string cacheKey, MatchConfidence confidence, CancellationToken ct)
     {
         var searcher = _searchers[candidate.Source];
@@ -378,23 +417,28 @@ public sealed class LyricsEngine : ILyricsEngine
                 $"[{candidate.Source}] {ex.GetType().Name}: {ex.Message}");
         }
 
-        if (!lyrics.Success || string.IsNullOrEmpty(lyrics.RawText))
+        if (!lyrics.Success)
         {
             Trace.WriteLine($"[Engine] fetch failed: source={candidate.Source} error={lyrics.ErrorMessage ?? "empty raw text"}");
-            return null;
+            return (null, new SourceFailureDetail(candidate.Source, SourceFailureStage.Fetch, lyrics.ErrorMessage ?? "取词失败"));
+        }
+        if (string.IsNullOrEmpty(lyrics.RawText))
+        {
+            Trace.WriteLine($"[Engine] no lyrics: source={candidate.Source}");
+            return (null, new SourceFailureDetail(candidate.Source, SourceFailureStage.NoLyrics, "无歌词"));
         }
 
         Trace.WriteLine($"[Engine] fetch ok: source={candidate.Source} format={lyrics.Format} rawLen={lyrics.RawText.Length}");
 
         // TASK-205F 防线（真机根因 4）：候选原文经解析缝产出 Lines==0 的空文档时，
-        // 该候选按失败处理——不写缓存（否则缓存命中回放又得空文档，永久占用该键）、记录日志并返回 null，
+        // 该候选按失败处理——不写缓存（否则缓存命中回放又得空文档，永久占用该键）、记录日志并返回失败明细，
         // 由调用方顺延下一候选/下一源；全部候选解析为空 → 全灭 → 调用方写负缓存（PRD S3）。
         var document = _parser.Parse(lyrics.RawText, candidate.Source, lyrics.Format, lyrics.TranslationText);
         if (document.Lines.Count == 0)
         {
             Trace.WriteLine($"[Engine] parsed empty document, candidate failed: source={candidate.Source} " +
                             $"format={lyrics.Format} rawLen={lyrics.RawText.Length}（解析器不支持该格式/原文无歌词行）");
-            return null;
+            return (null, new SourceFailureDetail(candidate.Source, SourceFailureStage.Parse, "解析空文档"));
         }
 
         Trace.WriteLine($"[Engine] store cache key={cacheKey} source={candidate.Source} rawLen={lyrics.RawText.Length}");
@@ -407,13 +451,13 @@ public sealed class LyricsEngine : ILyricsEngine
             OffsetSec: 0,
             StoredAt: _clock().UtcDateTime)).ConfigureAwait(false);
 
-        return new LyricsResult(
+        return (new LyricsResult(
             document,
             candidate.Source,
             confidence,
             FromCache: false,
             UserBound: false,
-            OffsetSec: 0); // 新取词无偏移
+            OffsetSec: 0), null); // 新取词无偏移，无失败
     }
 
     private sealed record SourceCandidate(LyricsSourceKind Source, SourceSearchResult Result, SourceMatchScore Score);

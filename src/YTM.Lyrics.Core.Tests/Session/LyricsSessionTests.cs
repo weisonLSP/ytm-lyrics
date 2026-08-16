@@ -104,8 +104,8 @@ public class LyricsSessionTests
         var calls = 0;
         var engine = new FakeEngine(_ => calls++ == 0 ? tcs1.Task : tcs2.Task); // 首次调用挂 tcs1，之后挂 tcs2
         var session = CreateSession(machine, engine, out _, out _);
-        LyricsRenderState? received = null;
-        session.LyricsChanged += (_, s) => received = s;
+        var received = new List<LyricsRenderState>();
+        session.LyricsChanged += (_, s) => received.Add(s);
 
         machine.RaiseTrackChanged();                              // gen1：挂起 tcs1
         await WaitFor(() => engine.GetCalls == 1);
@@ -113,12 +113,24 @@ public class LyricsSessionTests
         machine.RaiseTrackChanged();                              // gen2：挂起 tcs2，取消 gen1
         await WaitFor(() => engine.GetCalls == 2);
 
-        tcs1.SetResult(FakeEngine.Ok);                            // gen1 结果完成 → 应被丢弃
-        await Task.Delay(150);
-        Assert.Null(received);
+        // 确定性顺序（避免依赖旧代 continuation 的调度时窗）：gen2 结果先完成 → 广播；
+        // gen1 结果后完成 → 必须被丢弃（received 不新增、不被旧代覆盖）
+        var gen2Result = FakeEngine.Ok with
+        {
+            Document = new LyricDocument
+            {
+                Source = LyricsSourceKind.QQMusic,
+                Lines = new[] { new LyricLine(TimeSpan.Zero, null, "gen2-line", null, null) },
+            },
+        };
+        tcs2.SetResult(gen2Result);
+        await WaitFor(() => received.Count >= 1);
+        Assert.Equal("gen2-line", received[0].Document!.Lines[0].Text);
 
-        tcs2.SetResult(FakeEngine.Ok);                            // gen2 结果完成 → 广播
-        await WaitFor(() => received is not null);
+        tcs1.SetResult(FakeEngine.Ok);                            // gen1 结果完成 → 应被丢弃
+        await Task.Delay(300);
+        Assert.Single(received);                                  // 无新增广播（gen1 被代际守卫丢弃）
+        Assert.Equal("gen2-line", received[0].Document!.Lines[0].Text); // 旧代未覆盖新代
         session.Dispose();
     }
 
@@ -380,6 +392,30 @@ public class LyricsSessionTests
         Assert.Equal(0, received[^1].OffsetSec);
         session.Dispose();
     }
+
+    // ---------------- TASK-604 B：失败原因透传 ----------------
+
+    [Fact]
+    public async Task 加载全失败_渲染状态透传失败明细()
+    {
+        // 自动搜索全失败 → session 广播的 LyricsRenderState 带 Failures（窗口状态条显示逐源原因汇总）
+        var machine = new FakeMachine { Current = Snap(Track()) };
+        var engine = new FakeEngine(_ => Task.FromResult(new LyricsResult(null, null, MatchConfidence.None, false, false, 0,
+            new[] { new SourceFailureDetail(LyricsSourceKind.QQMusic, SourceFailureStage.Search, "无数据") })));
+        var session = CreateSession(machine, engine, out _, out _);
+        LyricsRenderState? received = null;
+        session.LyricsChanged += (_, s) => received = s;
+
+        machine.RaiseTrackChanged();
+        await WaitFor(() => received is not null);
+
+        Assert.Equal(MatchConfidence.None, received!.Confidence);
+        var failure = Assert.Single(received.Failures!);
+        Assert.Equal(LyricsSourceKind.QQMusic, failure.Source);
+        Assert.Equal(SourceFailureStage.Search, failure.Stage);
+        Assert.Equal("无数据", failure.Reason);
+        session.Dispose();
+    }
 }
 
 /// <summary>可手动驱动的 IPlaybackStateMachine（position 渲染职责不在 session，测试只驱动 TrackChanged）。</summary>
@@ -435,10 +471,11 @@ internal sealed class FakeEngine : ILyricsEngine
         return _get(ct);
     }
 
-    public Task<IReadOnlyList<SourceCandidateGroup>> SearchCandidatesAsync(string keyword, CancellationToken ct = default)
+    public Task<ManualSearchOutcome> SearchCandidatesAsync(string keyword, CancellationToken ct = default)
     {
         SearchedKeywords.Add(keyword);
-        return Task.FromResult<IReadOnlyList<SourceCandidateGroup>>(Array.Empty<SourceCandidateGroup>());
+        return Task.FromResult(new ManualSearchOutcome(
+            Array.Empty<SourceCandidateGroup>(), Array.Empty<SourceFailureDetail>()));
     }
 
     public Task<LyricsResult> BindLyricsAsync(CleanedTrack track, double durationSec, SourceSearchResult selected, CancellationToken ct = default)

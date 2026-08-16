@@ -59,6 +59,11 @@ public partial class SettingsWindow : Window
 
         foreach (var key in s.lyric_source_priority)
         {
+            // TASK-604 A：老 settings.json 残留的 applemusic 自动剔除（Apple Music 已从默认源移除，不显示）
+            if (key.Equals("applemusic", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
             _sourceEntries.Add(new SourcePriorityEntry(key, $"{SourceDisplayName(key)} ({key})"));
         }
         RefreshSourceList();

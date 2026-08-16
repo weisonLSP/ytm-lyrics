@@ -49,7 +49,7 @@ Lyricify.Lyrics.Helper   external/Lyricify-Lyrics-Helper 源码项目引用（ma
 | ADR-6 | 进度同步 | 快照 + 本地外推 + 漂移校正 | 探针 2s 心跳即可支撑逐字级滚动；探针因此可做薄 | 冻结 |
 | ADR-7 | 跨平台预留 | Core 零 UI + IPlaybackProvider | Android (MAUI) 未来只写 UI 与新探针实现 | 冻结 |
 | ADR-8 | Helper 隔离 | External/ 防腐层，内部模型不暴露 Helper 类型 | Helper 升级/fork 时影响面限于一层 | 冻结 |
-| ADR-9 | 默认源优先级 | QQ音乐 → 酷狗 → Apple Music → 网易云 → Musixmatch；**汽水移出歌词源列表** | 汽水只有搜索 API 无歌词获取接口；网易云硬编码 Cookie + 限流(-460) 降为低优先级；可配置，不违反 PRD | 冻结 |
+| ADR-9 | 默认源优先级 | QQ音乐 → 酷狗 → 网易云 → Musixmatch（Apple Music 2026-08 移除：歌词 API 需特权 token）；**汽水移出歌词源列表** | 汽水只有搜索 API 无歌词获取接口；网易云硬编码 Cookie + 限流(-460) 降为低优先级；Apple Music 代码/枚举保留作扩展点，未来有登录态可经 SetMediaUserToken 接回（TASK-604）；可配置，不违反 PRD | 冻结 | 汽水只有搜索 API 无歌词获取接口；网易云硬编码 Cookie + 限流(-460) 降为低优先级；可配置，不违反 PRD | 冻结 |
 | ADR-10 | 沙箱构建参数 | 构建/测试统一携带 `-property:MSBuildEnableWorkloadResolver=false -maxcpucount:1`（推荐经 `.nuget/` 响应文件）；**前置：`DOTNET_CLI_HOME` 指向工作区内可写目录（如 `.nuget/dotnet-home`）**（TASK-102 补录） | 本机 SDK 8.0.424 被裁剪缺 workload locator（MSB4276）；受限 token 阻断 MSBuild worker 节点 spawn（0 错误静默退出 1）；CLI 首启 sentinel 写入用户目录被拒。均为官方机制/环境变量重定向，仅沙箱内需要 | 冻结（TASK-101/102 实测） |
 | ADR-11 | NuGet 离线源 | `.nuget/local-feed/` + 仓库根 nuget.config（不提交）；Python/OpenSSL 拉包（`.nuget/fetch_packages.py`） | 受限 token 下 Schannel TLS 不可用（SEC_E_NO_CREDENTIALS），Python ssl 走 OpenSSL 可出网。正常环境删除 nuget.config 即恢复默认源。NU1603 近似匹配警告已接受（不影响产物） | 冻结（TASK-101 实测） |
 | ADR-12 | 发布形态 | **framework-dependent 单文件**（依赖本机 .NET 8 Desktop Runtime），不用 self-contained | self-contained 自解压 native dll 到 `%TEMP%`，本机用户名含单引号（`wei'son`）导致解压路径解析失败，WPF 启动 DllNotFoundException（2026-08-12 实测，事件日志实证）。沙箱验证通过但用户环境崩溃，验证环境差异警示。framework-dependent 单文件无自解压机制，绕开此坑 | 冻结 |
