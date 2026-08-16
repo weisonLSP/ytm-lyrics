@@ -1,13 +1,13 @@
 # HANDOFF：会话交接包
 
 > 本文件只保留「当前真相 + 开口事项」。完成超过 7 天的内容移入 docs/history/（规则见 WORKFLOW §9）。
-> 最后更新：2026-08-16（TASK-601 已修+真机确认进 v1.0.0；ADR-13 已落地 TASK-602；F11 待做 TASK-603）
+> 最后更新：2026-08-16（TASK-601 进 v1.0.0；ADR-13 落地 TASK-602；F11 落地 TASK-603，待真机确认）
 
 ## 30 秒速览
 
 YTM.Lyrics：YouTube Music 桌面歌词应用。C# .NET 8 + WPF 桌面端 + 油猴探针，歌词供应链复用 Lyricify.Lyrics.Helper（源码固化 external/，commit c14bba9）。
 
-**现状**：M1–M4 全部完成，用户真机重度实测中/日/英覆盖率约 90%。dist/YTM.Lyrics.exe 为 framework-dependent 单文件（ADR-12），含 M1–M4 全部改动 + 真机反馈 ⑩⑪；探针 @0.1.1（含⑨，需 Tampermonkey 侧更新）。单测基线 260 全绿。
+**现状**：M1–M4 全部完成，用户真机重度实测中/日/英覆盖率约 90%。dist/YTM.Lyrics.exe 为 framework-dependent 单文件（ADR-12），含 M1–M4 全部改动 + 真机反馈 ⑩⑪；探针 @0.1.1（含⑨，需 Tampermonkey 侧更新）。单测基线 289 全绿。
 
 **方向（2026-08-16 裁决）**：进入日用打磨期。打 v1.0.0 tag → 按 BUGS.md 建议顺序烧零 backlog；F11 歌词偏移与 LyricsSession 重构（TDD ADR-13）绑定实施。不做移动端，不做 UI 大改；公开发布（GitHub 公网推广）是独立决策，未拍板。
 
@@ -16,7 +16,7 @@ YTM.Lyrics：YouTube Music 桌面歌词应用。C# .NET 8 + WPF 桌面端 + 油�
 ### 活 backlog（BUGS.md，建议处理顺序）
 
 1. ~~「」括号过滤~~ ✅ 已修+已真机确认（TASK-601，2026-08-16：角括弧抢救规则，267 单测全绿），随 v1.0.0 发布进 dist
-2. F11 歌词偏移 ±5s（连同 ADR-13 LyricsSession 下沉 Core）——ADR-13 已落地（TASK-602 完成，279 单测全绿）；F11 待做（TASK-603）
+2. ~~F11 歌词偏移 ±5s（连同 ADR-13 LyricsSession 下沉 Core）~~ ✅ 已落地（TASK-602 ADR-13 + TASK-603 F11，289 单测全绿）——待真机确认后随发布进 dist
 3. 绑定失败原因透明化（顺带诊断 Apple Music 源全失败那条）
 4. UX 零碎：歌名可复制 / 清缓存残留输入 / 清缓存等待过长
 5. 本地数据/离线听歌：待用户拍板是否立项（YTM 本身离线能力存疑）
