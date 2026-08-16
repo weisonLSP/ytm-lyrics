@@ -16,7 +16,7 @@ YTM.Lyrics：YouTube Music 桌面歌词应用。C# .NET 8 + WPF 桌面端 + 油�
 ### 活 backlog（BUGS.md，建议处理顺序）
 
 1. ~~「」括号过滤~~ ✅ 已修+已真机确认（TASK-601，2026-08-16：角括弧抢救规则，267 单测全绿），随 v1.0.0 发布进 dist
-2. F11 歌词偏移 ±5s（连同 ADR-13 LyricsSession 下沉 Core 一起做）
+2. F11 歌词偏移 ±5s（连同 ADR-13 LyricsSession 下沉 Core）——已拆卡 TASK-602（ADR-13 重构）+ TASK-603（F11 偏移），进行中
 3. 绑定失败原因透明化（顺带诊断 Apple Music 源全失败那条）
 4. UX 零碎：歌名可复制 / 清缓存残留输入 / 清缓存等待过长
 5. 本地数据/离线听歌：待用户拍板是否立项（YTM 本身离线能力存疑）
